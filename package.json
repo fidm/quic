@@ -1,0 +1,34 @@
+{
+  "name": "quic",
+  "description": "QUIC (Quick UDP Internet Connection) in Node.js",
+  "authors": [
+    "Yan Qing <admin@zensh.com>"
+  ],
+  "version": "0.0.1",
+  "main": "lib/index.js",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:toajs/quic.git"
+  },
+  "homepage": "https://github.com/toajs/quic",
+  "engines": {
+    "node": ">=4"
+  },
+  "keywords": [
+    "quic",
+    "udp"
+  ],
+  "dependencies": {},
+  "devDependencies": {
+    "standard": "^7.1.2",
+    "tman": "^1.0.4"
+  },
+  "scripts": {
+    "test": "standard && tman"
+  },
+  "files": [
+    "README.md",
+    "lib"
+  ]
+}
