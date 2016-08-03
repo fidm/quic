@@ -6,6 +6,10 @@ QUIC (Quick UDP Internet Connection) in Node.js.
 [![Build Status][travis-image]][travis-url]
 [![Downloads][downloads-image]][downloads-url]
 
+## Google QUIC https://www.chromium.org/quic
+
+## QUIC Protocol: https://tools.ietf.org/html/draft-tsvwg-quic-protocol-02
+
 ## License
 quic is licensed under the [MIT](https://github.com/toajs/quic/blob/master/LICENSE) license.  
 Copyright &copy; 2016 Toajs.
