@@ -87,14 +87,53 @@ tman.suite('packet', function () {
     })
   })
 
-  // tman.suite('ConnectionId', function () {
-  //   const ConnectionId = packet.ConnectionId
-  // })
-  //
-  // tman.suite('ResetPacket', function () {
-  //   const ResetPacket = packet.ResetPacket
-  // })
-  //
+  tman.suite('ConnectionId', function () {
+    const ConnectionId = packet.ConnectionId
+
+    tman.it('ConnectionId.random', function () {
+      let connectionId = ConnectionId.random()
+      assert.strictEqual(connectionId.buf.length, 8)
+      assert.ok(connectionId.id[0] >= 0)
+      assert.ok(connectionId.id[1] >= 0)
+    })
+
+    tman.it('new ConnectionId, toBuffer, equals', function () {
+      let connectionId1 = ConnectionId.random()
+      let connectionId2 = new ConnectionId(connectionId1.toBuffer().slice())
+      assert.ok(connectionId1 !== connectionId2)
+      assert.ok(connectionId1.equals(connectionId2))
+    })
+  })
+
+  tman.suite('parse and ResetPacket', function () {
+    const ResetPacket = packet.ResetPacket
+
+    tman.it('new ResetPacket and parse resetPacket buf', function () {
+      let connectionId = packet.ConnectionId.random()
+      let nonceProof = bufferFromBytes([
+        0x89, 0x67, 0x45, 0x23,
+        0x01, 0xEF, 0xCD, 0xAB
+      ])
+      let packetNumber = packet.PacketNumber.fromId(1)
+      let clientAdress = bufferFromBytes([
+        0x02, 0x00,
+        0x04, 0x1F, 0xC6, 0x2C,
+        0xBB, 0x01
+      ])
+      let resetPacket = new ResetPacket(connectionId, nonceProof, packetNumber, clientAdress)
+      assert.ok(resetPacket instanceof packet.Packet)
+
+      let buf = resetPacket.toBuffer()
+      let res = packet.parse(buf, true)
+      assert.ok(res instanceof packet.Packet)
+      assert.ok(resetPacket.flag === res.flag)
+      assert.ok(resetPacket.connectionId.equals(res.connectionId))
+      assert.ok(resetPacket.packetNumber.equals(res.packetNumber))
+      assert.ok(resetPacket.nonceProof.equals(res.nonceProof))
+      assert.ok(resetPacket.clientAdress.equals(res.clientAdress))
+    })
+  })
+
   // tman.suite('NegotiationPacket', function () {
   //   const NegotiationPacket = packet.NegotiationPacket
   // })
