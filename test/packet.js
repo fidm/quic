@@ -105,7 +105,44 @@ tman.suite('packet', function () {
     })
   })
 
-  tman.suite('parse and ResetPacket', function () {
+  tman.suite('SocketAddress', function () {
+    const SocketAddress = packet.SocketAddress
+
+    tman.it('SocketAddress, IPv4', function () {
+      let socketAddress = new SocketAddress({port: 3000, family: 'IPv4', address: '127.0.0.1'})
+      let res = SocketAddress.fromBuffer(socketAddress.toBuffer())
+      assert.deepEqual(socketAddress, res)
+
+      socketAddress = new SocketAddress({port: 0x1234, family: 'IPv4', address: '4.31.198.44'})
+      assert.ok(socketAddress.toBuffer().equals(bufferFromBytes([
+        0x02, 0x00, 0x04, 0x1f, 0xc6, 0x2c, 0x34, 0x12
+      ])))
+    })
+
+    tman.it('SocketAddress, IPv6', function () {
+      let socketAddress = new SocketAddress({port: 65534, family: 'IPv6', address: '::1'})
+      assert.strictEqual(socketAddress.address, '0:0:0:0:0:0:0:1')
+      let res = SocketAddress.fromBuffer(socketAddress.toBuffer())
+      assert.deepEqual(socketAddress, res)
+
+      socketAddress = new SocketAddress({
+        port: 0x5678, family: 'IPv6', address: '2001:700:300:1800::'})
+      assert.strictEqual(socketAddress.address, '2001:700:300:1800:0:0:0:0')
+      res = SocketAddress.fromBuffer(socketAddress.toBuffer())
+      assert.deepEqual(socketAddress, res)
+
+      socketAddress = new SocketAddress({
+        port: 0x5678, family: 'IPv6', address: '2001:700:300:1800::f'})
+      assert.ok(socketAddress.toBuffer().equals(bufferFromBytes([
+        0x0a, 0x00,
+        0x20, 0x01, 0x07, 0x00, 0x03, 0x00, 0x18, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f,
+        0x78, 0x56
+      ])))
+    })
+  })
+
+  tman.suite('ResetPacket and parse', function () {
     const ResetPacket = packet.ResetPacket
 
     tman.it('new ResetPacket and parse resetPacket buf', function () {
@@ -115,12 +152,12 @@ tman.suite('packet', function () {
         0x01, 0xEF, 0xCD, 0xAB
       ])
       let packetNumber = packet.PacketNumber.fromId(1)
-      let clientAdress = bufferFromBytes([
+      let socketAddress = packet.SocketAddress.fromBuffer(bufferFromBytes([
         0x02, 0x00,
         0x04, 0x1F, 0xC6, 0x2C,
         0xBB, 0x01
-      ])
-      let resetPacket = new ResetPacket(connectionId, nonceProof, packetNumber, clientAdress)
+      ]))
+      let resetPacket = new ResetPacket(connectionId, nonceProof, packetNumber, socketAddress)
       assert.ok(resetPacket instanceof packet.Packet)
 
       let buf = resetPacket.toBuffer()
@@ -130,14 +167,29 @@ tman.suite('packet', function () {
       assert.ok(resetPacket.connectionId.equals(res.connectionId))
       assert.ok(resetPacket.packetNumber.equals(res.packetNumber))
       assert.ok(resetPacket.nonceProof.equals(res.nonceProof))
-      assert.ok(resetPacket.clientAdress.equals(res.clientAdress))
+      assert.deepEqual(resetPacket.socketAddress, res.socketAddress)
     })
   })
 
-  // tman.suite('NegotiationPacket', function () {
-  //   const NegotiationPacket = packet.NegotiationPacket
-  // })
-  //
+  tman.suite('NegotiationPacket and parse', function () {
+    const NegotiationPacket = packet.NegotiationPacket
+
+    tman.it('new NegotiationPacket and parse negotiationPacket buf', function () {
+      let connectionId = packet.ConnectionId.random()
+      let negotiationPacket = NegotiationPacket.fromConnectionId(connectionId)
+      assert.ok(negotiationPacket instanceof packet.Packet)
+      assert.deepEqual(negotiationPacket.versions, packet.QUIC_VERSIONS)
+      assert.ok(packet.isValidVersion(negotiationPacket.versions[0]))
+
+      let buf = negotiationPacket.toBuffer()
+      let res = packet.parse(buf, true)
+      assert.ok(res instanceof packet.Packet)
+      assert.ok(negotiationPacket.flag === res.flag)
+      assert.ok(negotiationPacket.connectionId.equals(res.connectionId))
+      assert.deepEqual(negotiationPacket.versions, res.versions)
+    })
+  })
+
   // tman.suite('RegularPacket', function () {
   //   const PacketNumber = packet.RegularPacket
   // })
