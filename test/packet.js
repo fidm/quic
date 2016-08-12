@@ -83,7 +83,7 @@ tman.suite('packet', function () {
       packetNumber = packetNumber.nextNumber()
       assert.strictEqual(packetNumber.id, 2)
       assert.strictEqual(packetNumber.nextNumber().id, 3)
-      assert.strictEqual(PacketNumber.fromId(0xffffffffff).nextNumber().id, 1)
+      assert.strictEqual(PacketNumber.fromId(0xffffffffffff).nextNumber().id, 1)
     })
   })
 

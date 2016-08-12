@@ -7,9 +7,41 @@
 const tman = require('tman')
 const assert = require('assert')
 const frame = require('../lib/frame')
+const packet = require('../lib/packet')
+const QuicError = require('../lib/error')
 const bufferFromBytes = require('../lib/util').bufferFromBytes
 
 tman.suite('frame', function () {
+  tman.suite('PaddingFrame', function () {
+    const PaddingFrame = frame.PaddingFrame
+
+    tman.it('new PaddingFrame', function () {
+      let paddingFrame = new PaddingFrame()
+
+      assert.strictEqual(paddingFrame.flag, 0)
+      assert.ok(paddingFrame.toBuffer().equals(bufferFromBytes([0x00])))
+    })
+  })
+
+  tman.suite('ResetStreamFrame', function () {
+    const ResetStreamFrame = frame.ResetStreamFrame
+
+    tman.it('new ResetStreamFrame', function () {
+      let streamId = frame.StreamId.fromId(1)
+      let error = new QuicError(1)
+      let offset = bufferFromBytes([0x01, 0x2, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])
+      let resetStreamFrame = new ResetStreamFrame(streamId, offset, error)
+
+      assert.strictEqual(resetStreamFrame.flag, 1)
+      assert.ok(resetStreamFrame.toBuffer().equals(bufferFromBytes([
+        0x01,
+        0x01, 0x00, 0x00, 0x00,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x00, 0x00, 0x00
+      ])))
+    })
+  })
+
   tman.suite('QuicTag', function () {
     const QuicTag = frame.QuicTag
 
