@@ -23,6 +23,32 @@ tman.suite('QuicId', function () {
   tman.suite('PacketNumber', function () {
     const PacketNumber = QuicId.PacketNumber
 
+    tman.it('new PacketNumber', function () {
+      let packetNumber = new PacketNumber(bufferFromBytes([0x1]))
+      assert.strictEqual(packetNumber.id, 1)
+      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x1])))
+
+      packetNumber = new PacketNumber(bufferFromBytes([0x0, 0x1, 0x0, 0x0]))
+      assert.strictEqual(packetNumber.id, 0x100)
+      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x0, 0x1])))
+
+      packetNumber = new PacketNumber(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]))
+      assert.strictEqual(packetNumber.id, 0x10000)
+      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x0, 0x0, 0x1, 0x0])))
+
+      packetNumber = new PacketNumber(bufferFromBytes([
+        0x0, 0x0, 0x0, 0x0,
+        0x1, 0x0, 0x0, 0x0
+      ]))
+      assert.strictEqual(packetNumber.id, 0x100000000)
+      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x1, 0x0])))
+
+      assert.throws(() => new PacketNumber(bufferFromBytes([
+        0x0, 0x0, 0x0, 0x0,
+        0x1, 0x0, 0x1, 0x0
+      ])))
+    })
+
     tman.it('PacketNumber.fromId', function () {
       let id = 1  // 8 bits
       let packetNumber = PacketNumber.fromId(id)
@@ -48,45 +74,19 @@ tman.suite('QuicId', function () {
       assert.throws(() => PacketNumber.fromId(id))
     })
 
-    tman.it('PacketNumber.fromBuffer', function () {
-      let packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1]))
-      assert.strictEqual(packetNumber.id, 1)
-      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x1])))
-
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x1, 0x0, 0x0]))
-      assert.strictEqual(packetNumber.id, 0x100)
-      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x0, 0x1])))
-
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]))
-      assert.strictEqual(packetNumber.id, 0x10000)
-      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x0, 0x0, 0x1, 0x0])))
-
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([
-        0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x0
-      ]))
-      assert.strictEqual(packetNumber.id, 0x100000000)
-      assert.ok(packetNumber.toBuffer().equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x1, 0x0])))
-
-      assert.throws(() => PacketNumber.fromBuffer(bufferFromBytes([
-        0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x1, 0x0
-      ])))
-    })
-
     tman.it('packetNumber.equals', function () {
-      assert.ok(PacketNumber.fromId(1).equals(PacketNumber.fromBuffer(bufferFromBytes([0x1]))))
+      assert.ok(PacketNumber.fromId(1).equals(new PacketNumber(bufferFromBytes([0x1]))))
       assert.ok(PacketNumber.fromId(0x10000)
-        .equals(PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]))))
+        .equals(new PacketNumber(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]))))
       assert.ok(!PacketNumber.fromId(0x10000)
-        .equals(PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x0, 0x1, 0x0, 0x0]))))
+        .equals(new PacketNumber(bufferFromBytes([0x0, 0x0, 0x0, 0x1, 0x0, 0x0]))))
     })
 
     tman.it('packetNumber.toFullBuffer', function () {
       assert.ok(bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0]).equals(
-        PacketNumber.fromBuffer(bufferFromBytes([0x1])).toFullBuffer()))
+        new PacketNumber(bufferFromBytes([0x1])).toFullBuffer()))
       assert.ok(bufferFromBytes([0x0, 0x0, 0x0, 0x1, 0x0, 0x0, 0x0, 0x0]).equals(
-        PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x0, 0x1])).toFullBuffer()))
+        new PacketNumber(bufferFromBytes([0x0, 0x0, 0x0, 0x1])).toFullBuffer()))
     })
 
     tman.it('packetNumber.nextNumber', function () {
