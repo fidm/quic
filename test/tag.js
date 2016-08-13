@@ -7,25 +7,25 @@
 const tman = require('tman')
 const assert = require('assert')
 const QuicTag = require('../lib/tag')
-const bufferFromBytes = require('../lib/util').bufferFromBytes
+const bufferFromBytes = require('./util').bufferFromBytes
 
 tman.suite('QuicTag', function () {
   tman.it('QuicTag.fromBuffer', function () {
     let buf = bufferFromBytes([
       // message tag (kPRST)
-      'P', 'R', 'S', 'T',
+      'PRST',
       // num_entries (2) + padding
       0x03, 0x00, 0x00, 0x00,
       // tag kRNON
-      'R', 'N', 'O', 'N',
+      'RNON',
       // end offset 8
       0x08, 0x00, 0x00, 0x00,
       // tag kRSEQ
-      'R', 'S', 'E', 'Q',
+      'RSEQ',
       // end offset 16
       0x10, 0x00, 0x00, 0x00,
-      'C', 'A', 'D', 'R',
-      // end offset 16
+      'CADR',
+      // end offset 24
       0x18, 0x00, 0x00, 0x00,
       // nonce proof
       0x89, 0x67, 0x45, 0x23,
@@ -78,18 +78,18 @@ tman.suite('QuicTag', function () {
 
     assert.ok(quicTag.toBuffer().equals(bufferFromBytes([
       // message tag (kPRST)
-      'P', 'R', 'S', 'T',
+      'PRST',
       // num_entries (2) + padding
       0x03, 0x00, 0x00, 0x00,
       // tag kRNON
-      'R', 'N', 'O', 'N',
+      'RNON',
       // end offset 8
       0x08, 0x00, 0x00, 0x00,
       // tag kRSEQ
-      'R', 'S', 'E', 'Q',
+      'RSEQ',
       // end offset 16
       0x10, 0x00, 0x00, 0x00,
-      'C', 'A', 'D', 'R',
+      'CADR',
       // end offset 16
       0x18, 0x00, 0x00, 0x00,
       // nonce proof

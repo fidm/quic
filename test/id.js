@@ -6,7 +6,7 @@
 const tman = require('tman')
 const assert = require('assert')
 const QuicId = require('../lib/id')
-const bufferFromBytes = require('../lib/util').bufferFromBytes
+const bufferFromBytes = require('./util').bufferFromBytes
 
 tman.suite('QuicId', function () {
   tman.suite('ConnectionID', function () {

@@ -7,7 +7,7 @@
 const tman = require('tman')
 const assert = require('assert')
 const QuicError = require('../lib/error')
-const bufferFromBytes = require('../lib/util').bufferFromBytes
+const bufferFromBytes = require('./util').bufferFromBytes
 
 tman.suite('error', function () {
   tman.it('new QuicError(0)', function () {

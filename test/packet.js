@@ -6,12 +6,12 @@
 const tman = require('tman')
 const assert = require('assert')
 const QuicId = require('../lib/id')
-const packet = require('../lib/packet')
-const bufferFromBytes = require('../lib/util').bufferFromBytes
+const QuicPacket = require('../lib/packet')
+const bufferFromBytes = require('./util').bufferFromBytes
 
-tman.suite('packet', function () {
+tman.suite('QuicPacket', function () {
   tman.suite('ResetPacket and parse', function () {
-    const ResetPacket = packet.ResetPacket
+    const ResetPacket = QuicPacket.ResetPacket
 
     tman.it('new ResetPacket and parse resetPacket buf', function () {
       let connectionId = QuicId.ConnectionID.random()
@@ -26,11 +26,11 @@ tman.suite('packet', function () {
         0xBB, 0x01
       ]))
       let resetPacket = new ResetPacket(connectionId, nonceProof, packetNumber, socketAddress)
-      assert.ok(resetPacket instanceof packet.QuicPacket)
+      assert.ok(resetPacket instanceof QuicPacket)
 
       let buf = resetPacket.toBuffer()
-      let res = packet.parse(buf, true)
-      assert.ok(res instanceof packet.QuicPacket)
+      let res = QuicPacket.fromBuffer(buf, true)
+      assert.ok(res instanceof QuicPacket)
       assert.ok(resetPacket.flag === res.flag)
       assert.ok(resetPacket.connectionId.equals(res.connectionId))
       assert.ok(resetPacket.packetNumber.equals(res.packetNumber))
@@ -40,18 +40,18 @@ tman.suite('packet', function () {
   })
 
   tman.suite('NegotiationPacket and parse', function () {
-    const NegotiationPacket = packet.NegotiationPacket
+    const NegotiationPacket = QuicPacket.NegotiationPacket
 
     tman.it('new NegotiationPacket and parse negotiationPacket buf', function () {
       let connectionId = QuicId.ConnectionID.random()
       let negotiationPacket = NegotiationPacket.fromConnectionID(connectionId)
-      assert.ok(negotiationPacket instanceof packet.QuicPacket)
-      assert.deepEqual(negotiationPacket.versions, packet.QUIC_VERSIONS)
-      assert.ok(packet.isValidVersion(negotiationPacket.versions[0]))
+      assert.ok(negotiationPacket instanceof QuicPacket)
+      assert.deepEqual(negotiationPacket.versions, QuicPacket.QUIC_VERSIONS)
+      assert.ok(QuicPacket.isValidVersion(negotiationPacket.versions[0]))
 
       let buf = negotiationPacket.toBuffer()
-      let res = packet.parse(buf, true)
-      assert.ok(res instanceof packet.QuicPacket)
+      let res = QuicPacket.fromBuffer(buf, true)
+      assert.ok(res instanceof QuicPacket)
       assert.ok(negotiationPacket.flag === res.flag)
       assert.ok(negotiationPacket.connectionId.equals(res.connectionId))
       assert.deepEqual(negotiationPacket.versions, res.versions)
@@ -59,10 +59,10 @@ tman.suite('packet', function () {
   })
 
   // tman.suite('RegularPacket', function () {
-  //   const PacketNumber = packet.RegularPacket
+  //   const PacketNumber = QuicPacket.RegularPacket
   // })
   //
   // tman.suite('Packet', function () {
-  //   const PacketNumber = packet.QuicPacket
+  //   const PacketNumber = QuicPacket.QuicPacket
   // })
 })
