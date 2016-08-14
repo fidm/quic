@@ -13,7 +13,7 @@
   },
   "homepage": "https://github.com/toajs/quic",
   "engines": {
-    "node": ">=4"
+    "node": ">=6"
   },
   "keywords": [
     "quic",
