@@ -28,16 +28,17 @@ tman.suite('QuicFrame', function () {
     const ResetStreamFrame = QuicFrame.ResetStreamFrame
 
     tman.it('new ResetStreamFrame', function () {
-      let streamId = QuicID.StreamId.fromId(1)
+      let streamID = QuicID.StreamID.fromValue(1)
       let error = new QuicError(1)
-      let offset = bufferFromBytes([0x01, 0x2, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08])
-      let resetStreamFrame = new ResetStreamFrame(streamId, offset, error)
+      let offset = new QuicID.Offset(
+        bufferFromBytes([0x01, 0x2, 0x03, 0x04, 0x05, 0x06]))
+      let resetStreamFrame = new ResetStreamFrame(streamID, offset, error)
 
       assert.strictEqual(resetStreamFrame.type, 1)
       assert.ok(resetStreamFrame.toBuffer().equals(bufferFromBytes([
         0x01,
         0x01, 0x00, 0x00, 0x00,
-        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00,
         0x01, 0x00, 0x00, 0x00
       ])))
       assert.deepEqual(resetStreamFrame, ResetStreamFrame.fromBuffer(resetStreamFrame.toBuffer()))
@@ -82,8 +83,8 @@ tman.suite('QuicFrame', function () {
 
     tman.it('new GoAwayFrame with QuicError(0)', function () {
       let error = new QuicError(0)
-      let streamId = QuicID.StreamId.fromId(7)
-      let goAwayFrame = new GoAwayFrame(error, streamId)
+      let streamID = QuicID.StreamID.fromValue(7)
+      let goAwayFrame = new GoAwayFrame(error, streamID)
 
       assert.strictEqual(goAwayFrame.type, 3)
       assert.ok(goAwayFrame.toBuffer().equals(bufferFromBytes([
@@ -97,8 +98,8 @@ tman.suite('QuicFrame', function () {
 
     tman.it('new GoAwayFrame with QuicError(1)', function () {
       let error = new QuicError(1)
-      let streamId = QuicID.StreamId.fromId(7)
-      let goAwayFrame = new GoAwayFrame(error, streamId)
+      let streamID = QuicID.StreamID.fromValue(7)
+      let goAwayFrame = new GoAwayFrame(error, streamID)
 
       assert.strictEqual(goAwayFrame.type, 3)
       assert.ok(goAwayFrame.toBuffer().equals(bufferFromBytes([
@@ -115,10 +116,10 @@ tman.suite('QuicFrame', function () {
   tman.suite('WindowUpdateFrame', function () {
     const WindowUpdateFrame = QuicFrame.WindowUpdateFrame
 
-    tman.it('new WindowUpdateFrame with StreamId(0)', function () {
-      let streamId = QuicID.StreamId.fromId(0)
-      let offset = bufferFromBytes([0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00])
-      let windowUpdateFrame = new WindowUpdateFrame(streamId, offset)
+    tman.it('new WindowUpdateFrame with StreamID(0)', function () {
+      let streamID = QuicID.StreamID.fromValue(0)
+      let offset = new QuicID.Offset(bufferFromBytes([0xff, 0xff, 0xff, 0xff]))
+      let windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
 
       assert.strictEqual(windowUpdateFrame.type, 4)
       assert.ok(windowUpdateFrame.toBuffer().equals(bufferFromBytes([
@@ -134,9 +135,9 @@ tman.suite('QuicFrame', function () {
   tman.suite('BlockedFrame', function () {
     const BlockedFrame = QuicFrame.BlockedFrame
 
-    tman.it('new BlockedFrame with StreamId(0)', function () {
-      let streamId = QuicID.StreamId.fromId(0)
-      let blockedFrame = new BlockedFrame(streamId)
+    tman.it('new BlockedFrame with StreamID(0)', function () {
+      let streamID = QuicID.StreamID.fromValue(0)
+      let blockedFrame = new BlockedFrame(streamID)
 
       assert.strictEqual(blockedFrame.type, 5)
       assert.ok(blockedFrame.toBuffer().equals(bufferFromBytes([
@@ -189,7 +190,94 @@ tman.suite('QuicFrame', function () {
     })
 
     tman.it('when invalid CongestionFrame type', function () {
-      assert.throws(() => new CongestionFrame(0b01100000), /INVALID_FRAME_DATA/)
+      assert.throws(() => CongestionFrame.fromBuffer(bufferFromBytes([0b01100000])),
+        /INVALID_FRAME_DATA/)
+    })
+  })
+
+  tman.suite('StreamFrame', function () {
+    const StreamFrame = QuicFrame.StreamFrame
+
+    tman.it('new StreamFrame', function () {
+      let streamID = QuicID.StreamID.fromValue(1)
+      let offset = QuicID.Offset.fromValue(0)
+      let data = bufferFromBytes(['abcdefg'])
+      let streamFrame = new StreamFrame(streamID, offset, data, false)
+
+      assert.strictEqual(streamFrame.type, 0b10100000)
+      assert.strictEqual(streamFrame.isFIN, false)
+      assert.ok(streamFrame.toBuffer().equals(bufferFromBytes([
+        0b10100000,
+        0x1,
+        0x7, 0x0,
+        'abcdefg'
+      ])))
+      assert.deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+
+      streamID = streamID.nextID()
+      offset = offset.nextOffset(data.length)
+      data = bufferFromBytes(['higklmn'])
+      streamFrame = new StreamFrame(streamID, offset, data, false)
+
+      assert.strictEqual(streamFrame.type, 0b10100100)
+      assert.strictEqual(streamFrame.isFIN, false)
+      assert.ok(streamFrame.toBuffer().equals(bufferFromBytes([
+        0b10100100,
+        0x3,
+        0x7, 0x0,
+        0x7, 0x0,
+        'higklmn'
+      ])))
+      assert.deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+
+      streamID = streamID.nextID()
+      offset = offset.nextOffset(data.length)
+      data = bufferFromBytes(['opqrst'])
+      streamFrame = new StreamFrame(streamID, offset, data, false)
+
+      assert.strictEqual(streamFrame.type, 0b10100100)
+      assert.strictEqual(streamFrame.isFIN, false)
+      assert.ok(streamFrame.toBuffer().equals(bufferFromBytes([
+        0b10100100,
+        0x5,
+        0xe, 0x0,
+        0x6, 0x0,
+        'opqrst'
+      ])))
+      assert.deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+
+      streamID = streamID.nextID()
+      offset = offset.nextOffset(data.length)
+      data = bufferFromBytes(['uvwxyz'])
+      streamFrame = new StreamFrame(streamID, offset, data, true)
+
+      assert.strictEqual(streamFrame.type, 0b11100100)
+      assert.strictEqual(streamFrame.isFIN, true)
+      assert.ok(streamFrame.toBuffer().equals(bufferFromBytes([
+        0b11100100,
+        0x7,
+        0x14, 0x0,
+        0x6, 0x0,
+        'uvwxyz'
+      ])))
+      assert.deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+    })
+
+    tman.it('when invalid StreamFrame type', function () {
+      let streamID = QuicID.StreamID.fromValue(1)
+      let offset = QuicID.Offset.fromValue(0)
+      let data = bufferFromBytes(['abcd'])
+      let streamFrame = new StreamFrame(streamID, offset, data, false)
+      let buf = streamFrame.toBuffer()
+
+      assert.throws(() => StreamFrame.fromBuffer(buf.slice(0, 1)), /INVALID_STREAM_DATA/)
+      assert.throws(() => StreamFrame.fromBuffer(buf.slice(0, 2)), /INVALID_STREAM_DATA/)
+      assert.throws(() => StreamFrame.fromBuffer(buf.slice(0, 3)), /INVALID_STREAM_DATA/)
+      assert.throws(() => StreamFrame.fromBuffer(buf.slice(0, 4)), /INVALID_STREAM_DATA/)
+      assert.throws(() => StreamFrame.fromBuffer(buf.slice(0, 5)), /INVALID_STREAM_DATA/)
+      assert.throws(() => StreamFrame.fromBuffer(buf.slice(0, 6)), /INVALID_STREAM_DATA/)
+      assert.throws(() => StreamFrame.fromBuffer(buf.slice(0, 7)), /INVALID_STREAM_DATA/)
+      assert.deepEqual(streamFrame, StreamFrame.fromBuffer(buf.slice(0, streamFrame.byteLen)))
     })
   })
 })

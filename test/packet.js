@@ -14,25 +14,25 @@ tman.suite('QuicPacket', function () {
     const ResetPacket = QuicPacket.ResetPacket
 
     tman.it('new ResetPacket and parse resetPacket buf', function () {
-      let connectionId = QuicId.ConnectionID.random()
+      let connectionID = QuicId.ConnectionID.random()
       let nonceProof = bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB
       ])
-      let packetNumber = QuicId.PacketNumber.fromId(1)
+      let packetNumber = QuicId.PacketNumber.fromValue(1)
       let socketAddress = new QuicId.SocketAddress(bufferFromBytes([
         0x02, 0x00,
         0x04, 0x1F, 0xC6, 0x2C,
         0xBB, 0x01
       ]))
-      let resetPacket = new ResetPacket(connectionId, nonceProof, packetNumber, socketAddress)
+      let resetPacket = new ResetPacket(connectionID, nonceProof, packetNumber, socketAddress)
       assert.ok(resetPacket instanceof QuicPacket)
 
       let buf = resetPacket.toBuffer()
       let res = QuicPacket.fromBuffer(buf, true)
       assert.ok(res instanceof QuicPacket)
       assert.ok(resetPacket.flag === res.flag)
-      assert.ok(resetPacket.connectionId.equals(res.connectionId))
+      assert.ok(resetPacket.connectionID.equals(res.connectionID))
       assert.ok(resetPacket.packetNumber.equals(res.packetNumber))
       assert.ok(resetPacket.nonceProof.equals(res.nonceProof))
       assert.deepEqual(resetPacket.socketAddress, res.socketAddress)
@@ -43,8 +43,8 @@ tman.suite('QuicPacket', function () {
     const NegotiationPacket = QuicPacket.NegotiationPacket
 
     tman.it('new NegotiationPacket and parse negotiationPacket buf', function () {
-      let connectionId = QuicId.ConnectionID.random()
-      let negotiationPacket = NegotiationPacket.fromConnectionID(connectionId)
+      let connectionID = QuicId.ConnectionID.random()
+      let negotiationPacket = NegotiationPacket.fromConnectionID(connectionID)
       assert.ok(negotiationPacket instanceof QuicPacket)
       assert.deepEqual(negotiationPacket.versions, QuicPacket.QUIC_VERSIONS)
       assert.ok(QuicPacket.isValidVersion(negotiationPacket.versions[0]))
@@ -53,7 +53,7 @@ tman.suite('QuicPacket', function () {
       let res = QuicPacket.fromBuffer(buf, true)
       assert.ok(res instanceof QuicPacket)
       assert.ok(negotiationPacket.flag === res.flag)
-      assert.ok(negotiationPacket.connectionId.equals(res.connectionId))
+      assert.ok(negotiationPacket.connectionID.equals(res.connectionID))
       assert.deepEqual(negotiationPacket.versions, res.versions)
     })
   })
