@@ -1,6 +1,6 @@
 {
   "name": "quic",
-  "description": "QUIC (Quick UDP Internet Connection) in Node.js",
+  "description": "A QUIC server/client implementation in Node.js.",
   "authors": [
     "Yan Qing <admin@zensh.com>"
   ],
