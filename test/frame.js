@@ -153,16 +153,20 @@ tman.suite('QuicFrame', function () {
     const StopWaitingFrame = QuicFrame.StopWaitingFrame
 
     tman.it('new StopWaitingFrame', function () {
-      let packetNumber = new QuicID.PacketNumber(bufferFromBytes([0xff, 0x1f]))
-      let stopWaitingFrame = new StopWaitingFrame(packetNumber)
+      let headerPacketNumber = new QuicID.PacketNumber(bufferFromBytes([0xff, 0x1f]))
+      let leastUnackedPacketNumber = new QuicID.PacketNumber(bufferFromBytes([0xff, 0x0f]))
+      let stopWaitingFrame = new StopWaitingFrame(
+        headerPacketNumber.delta(leastUnackedPacketNumber), headerPacketNumber.byteLen)
 
       assert.strictEqual(stopWaitingFrame.type, 6)
       assert.ok(stopWaitingFrame.toBuffer().equals(bufferFromBytes([
         0x06,
-        0xff, 0x1f
+        0x00, 0x10
       ])))
       assert.deepEqual(stopWaitingFrame,
-        StopWaitingFrame.fromBuffer(stopWaitingFrame.toBuffer(), packetNumber.byteLen))
+        StopWaitingFrame.fromBuffer(stopWaitingFrame.toBuffer(), headerPacketNumber.byteLen))
+      assert.ok(leastUnackedPacketNumber.equals(
+        stopWaitingFrame.toPacketNumber(headerPacketNumber)))
     })
   })
 
