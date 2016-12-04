@@ -1,5 +1,5 @@
 QUIC (WIP)
-====
+=====
 A QUIC server/client implementation in Node.js.
 
 [![NPM version][npm-image]][npm-url]
@@ -8,10 +8,10 @@ A QUIC server/client implementation in Node.js.
 
 ## Google QUIC https://www.chromium.org/quic
 
-## QUIC Protocol: https://tools.ietf.org/html/draft-tsvwg-quic-protocol-02
+## QUIC Wire Layout Specification: https://docs.google.com/document/d/1WJvyZflAO2pq77yOLbp9NsGjC1CHetAXV8I0fQe-B_U
 
 ## License
-quic is licensed under the [MIT](https://github.com/toajs/quic/blob/master/LICENSE) license.  
+quic is licensed under the [MIT](https://github.com/toajs/quic/blob/master/LICENSE) license.
 Copyright &copy; 2016 Toajs.
 
 [npm-url]: https://npmjs.org/package/quic
