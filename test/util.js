@@ -3,8 +3,9 @@
 //
 // **License:** MIT
 
-const tman = require('tman')
-const assert = require('assert')
+const {suite, it} = require('tman')
+const {ok, strictEqual} = require('assert')
+
 const util = require('../lib/util')
 
 exports.bufferFromBytes = bufferFromBytes
@@ -20,30 +21,30 @@ function bufferFromBytes (array) {
   return Buffer.from(bytes)
 }
 
-tman.suite('util', function () {
-  tman.it('bufferFromBytes', function () {
-    assert.ok(bufferFromBytes(0xff).equals(Buffer.from([0xff])))
-    assert.ok(bufferFromBytes([0xff]).equals(Buffer.from([0xff])))
-    assert.ok(bufferFromBytes([0xff, 0x00]).equals(Buffer.from([0xff, 0x00])))
-    assert.ok(bufferFromBytes(['a', 'b']).equals(Buffer.from([0x61, 0x62])))
-    assert.ok(bufferFromBytes(['ab', 'c', 0x64]).equals(Buffer.from([0x61, 0x62, 0x63, 0x64])))
+suite('util', function () {
+  it('bufferFromBytes', function () {
+    ok(bufferFromBytes(0xff).equals(Buffer.from([0xff])))
+    ok(bufferFromBytes([0xff]).equals(Buffer.from([0xff])))
+    ok(bufferFromBytes([0xff, 0x00]).equals(Buffer.from([0xff, 0x00])))
+    ok(bufferFromBytes(['a', 'b']).equals(Buffer.from([0x61, 0x62])))
+    ok(bufferFromBytes(['ab', 'c', 0x64]).equals(Buffer.from([0x61, 0x62, 0x63, 0x64])))
   })
 
-  tman.it('Visitor', function () {
+  it('Visitor', function () {
     const Visitor = util.Visitor
 
     let v = new Visitor(0)
-    assert.strictEqual(v.start, 0)
-    assert.strictEqual(v.end, 0)
+    strictEqual(v.start, 0)
+    strictEqual(v.end, 0)
     v.walk(10)
-    assert.strictEqual(v.start, 0)
-    assert.strictEqual(v.end, 10)
+    strictEqual(v.start, 0)
+    strictEqual(v.end, 10)
     v.walk(100)
-    assert.strictEqual(v.start, 10)
-    assert.strictEqual(v.end, 110)
+    strictEqual(v.start, 10)
+    strictEqual(v.end, 110)
   })
 
-  tman.suite('UFloat16', function () {
+  suite('UFloat16', function () {
     const Float16MaxValue = util.Float16MaxValue
     const readUFloat16 = util.readUFloat16
     const writeUFloat16 = util.writeUFloat16
@@ -54,13 +55,13 @@ tman.suite('util', function () {
       return buf
     }
 
-    tman.it('Float16MaxValue, readUFloat16, writeUFloat16', function () {
+    it('Float16MaxValue, readUFloat16, writeUFloat16', function () {
       let buf = Buffer.from([0xff, 0xff])
-      assert.strictEqual(readUFloat16(buf), Float16MaxValue)
-      assert.ok(writeUFloat16(readUFloat16(buf)).equals(buf))
+      strictEqual(readUFloat16(buf), Float16MaxValue)
+      ok(writeUFloat16(readUFloat16(buf)).equals(buf))
     })
 
-    tman.it('writeUFloat16', function () {
+    it('writeUFloat16', function () {
       let testCases = [
         [0, 0],
         [1, 1],
@@ -125,11 +126,11 @@ tman.suite('util', function () {
       ]
 
       for (let data of testCases) {
-        assert.ok(writeUFloat16(data[0]).equals(uint16Buf(data[1])))
+        ok(writeUFloat16(data[0]).equals(uint16Buf(data[1])))
       }
     })
 
-    tman.it('readUFloat16', function () {
+    it('readUFloat16', function () {
       let testCases = [
         [0, 0],
         [1, 1],
@@ -174,7 +175,7 @@ tman.suite('util', function () {
       ]
 
       for (let data of testCases) {
-        assert.strictEqual(readUFloat16(uint16Buf(data[1])), data[0])
+        strictEqual(readUFloat16(uint16Buf(data[1])), data[0])
       }
     })
   })

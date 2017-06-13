@@ -4,13 +4,14 @@
 //
 // **License:** MIT
 
-const tman = require('tman')
-const assert = require('assert')
+const {suite, it} = require('tman')
+const {ok, strictEqual, deepEqual} = require('assert')
+
 const QuicTag = require('../lib/tag')
 const bufferFromBytes = require('./util').bufferFromBytes
 
-tman.suite('QuicTag', function () {
-  tman.it('QuicTag.fromBuffer', function () {
+suite('QuicTag', function () {
+  it('QuicTag.fromBuffer', function () {
     let buf = bufferFromBytes([
       // message tag (kPRST)
       'PRST',
@@ -39,26 +40,26 @@ tman.suite('QuicTag', function () {
       0xBB, 0x01
     ])
     let quicTag = QuicTag.fromBuffer(buf)
-    assert.strictEqual(quicTag.name, 'PRST')
-    assert.deepEqual(quicTag.keys, ['RNON', 'RSEQ', 'CADR'])
+    strictEqual(quicTag.name, 'PRST')
+    deepEqual(quicTag.keys, ['RNON', 'RSEQ', 'CADR'])
 
     let tags = quicTag.getTags()
-    assert.ok(tags.RNON.equals(bufferFromBytes([
+    ok(tags.RNON.equals(bufferFromBytes([
       0x89, 0x67, 0x45, 0x23,
       0x01, 0xEF, 0xCD, 0xAB
     ])))
-    assert.ok(tags.RSEQ.equals(bufferFromBytes([
+    ok(tags.RSEQ.equals(bufferFromBytes([
       0xBC, 0x9A, 0x78, 0x56,
       0x34, 0x12, 0x00, 0x00
     ])))
-    assert.ok(tags.CADR.equals(bufferFromBytes([
+    ok(tags.CADR.equals(bufferFromBytes([
       0x02, 0x00,
       0x04, 0x1F, 0xC6, 0x2C,
       0xBB, 0x01
     ])))
   })
 
-  tman.it('new QuicTag', function () {
+  it('new QuicTag', function () {
     let quicTag = new QuicTag('PRST')
     quicTag.setTag('RNON', bufferFromBytes([
       0x89, 0x67, 0x45, 0x23,
@@ -76,7 +77,7 @@ tman.suite('QuicTag', function () {
       0xBB, 0x01
     ]))
 
-    assert.ok(quicTag.toBuffer().equals(bufferFromBytes([
+    ok(quicTag.toBuffer().equals(bufferFromBytes([
       // message tag (kPRST)
       'PRST',
       // num_entries (2) + padding

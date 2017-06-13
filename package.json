@@ -13,7 +13,7 @@
   },
   "homepage": "https://github.com/toajs/quic",
   "engines": {
-    "node": ">=6"
+    "node": ">=8"
   },
   "keywords": [
     "quic",
@@ -21,9 +21,9 @@
   ],
   "dependencies": {},
   "devDependencies": {
-    "ilog": "^1.0.3",
-    "standard": "^8.6.0",
-    "tman": "^1.6.4"
+    "ilog": "^1.1.0",
+    "standard": "^10.0.2",
+    "tman": "^1.6.9"
   },
   "scripts": {
     "test": "standard && tman"
