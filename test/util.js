@@ -3,8 +3,8 @@
 //
 // **License:** MIT
 
-const {suite, it} = require('tman')
-const {ok, strictEqual} = require('assert')
+const { suite, it } = require('tman')
+const { ok, strictEqual } = require('assert')
 
 const util = require('../lib/util')
 

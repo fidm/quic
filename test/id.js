@@ -3,11 +3,11 @@
 //
 // **License:** MIT
 
-const {suite, it} = require('tman')
-const {ok, strictEqual, deepEqual, throws} = require('assert')
+const { suite, it } = require('tman')
+const { ok, strictEqual, deepEqual, throws } = require('assert')
 
 const QuicId = require('../lib/id')
-const bufferFromBytes = require('./util').bufferFromBytes
+const { bufferFromBytes } = require('./util')
 
 suite('QuicId', function () {
   suite('ConnectionID', function () {

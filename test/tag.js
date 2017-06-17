@@ -4,11 +4,11 @@
 //
 // **License:** MIT
 
-const {suite, it} = require('tman')
-const {ok, strictEqual, deepEqual} = require('assert')
+const { suite, it } = require('tman')
+const { ok, strictEqual, deepEqual } = require('assert')
 
 const QuicTag = require('../lib/tag')
-const bufferFromBytes = require('./util').bufferFromBytes
+const { bufferFromBytes } = require('./util')
 
 suite('QuicTag', function () {
   it('QuicTag.fromBuffer', function () {

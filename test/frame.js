@@ -4,13 +4,13 @@
 //
 // **License:** MIT
 
-const {suite, it} = require('tman')
-const {ok, strictEqual, deepEqual, throws} = require('assert')
+const { suite, it } = require('tman')
+const { ok, strictEqual, deepEqual, throws } = require('assert')
 
 const QuicID = require('../lib/id')
 const QuicFrame = require('../lib/frame')
-const QuicError = require('../lib/error')
-const bufferFromBytes = require('./util').bufferFromBytes
+const { QuicError } = require('../lib/error')
+const { bufferFromBytes } = require('./util')
 
 suite('QuicFrame', function () {
   suite('PaddingFrame', function () {

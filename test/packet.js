@@ -3,12 +3,12 @@
 //
 // **License:** MIT
 
-const {suite, it} = require('tman')
-const {ok, deepEqual} = require('assert')
+const { suite, it } = require('tman')
+const { ok, deepEqual } = require('assert')
 
 const QuicId = require('../lib/id')
 const QuicPacket = require('../lib/packet')
-const bufferFromBytes = require('./util').bufferFromBytes
+const { bufferFromBytes } = require('./util')
 
 suite('QuicPacket', function () {
   suite('ResetPacket and parse', function () {
