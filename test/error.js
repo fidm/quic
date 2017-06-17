@@ -9,9 +9,9 @@ const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual } = require('assert')
 
 const { QuicError } = require('../lib/error')
-const { bufferFromBytes } = require('./util')
+const { bufferFromBytes } = require('./common')
 
-suite('error', function () {
+suite('QUIC errors', function () {
   it('new QuicError(0)', function () {
     let err = new QuicError(0)
     strictEqual(err.code, 0)

@@ -6,7 +6,7 @@
 const { suite, it } = require('tman')
 const { ok, strictEqual } = require('assert')
 
-const util = require('../lib/util')
+const { Visitor, Float16MaxValue, readUFloat16, writeUFloat16 } = require('../lib/common')
 
 exports.bufferFromBytes = bufferFromBytes
 function bufferFromBytes (array) {
@@ -21,7 +21,7 @@ function bufferFromBytes (array) {
   return Buffer.from(bytes)
 }
 
-suite('util', function () {
+suite('common', function () {
   it('bufferFromBytes', function () {
     ok(bufferFromBytes(0xff).equals(Buffer.from([0xff])))
     ok(bufferFromBytes([0xff]).equals(Buffer.from([0xff])))
@@ -31,8 +31,6 @@ suite('util', function () {
   })
 
   it('Visitor', function () {
-    const Visitor = util.Visitor
-
     let v = new Visitor(0)
     strictEqual(v.start, 0)
     strictEqual(v.end, 0)
@@ -45,10 +43,6 @@ suite('util', function () {
   })
 
   suite('UFloat16', function () {
-    const Float16MaxValue = util.Float16MaxValue
-    const readUFloat16 = util.readUFloat16
-    const writeUFloat16 = util.writeUFloat16
-
     function uint16Buf (val) {
       let buf = Buffer.alloc(2)
       buf.writeUInt16BE(val, 0)

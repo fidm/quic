@@ -6,13 +6,11 @@
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual, throws } = require('assert')
 
-const QuicId = require('../lib/id')
-const { bufferFromBytes } = require('./util')
+const { ConnectionID, PacketNumber, StreamID, SocketAddress, Offset } = require('../lib/protocol')
+const { bufferFromBytes } = require('./common')
 
-suite('QuicId', function () {
+suite('QUIC Protocol', function () {
   suite('ConnectionID', function () {
-    const ConnectionID = QuicId.ConnectionID
-
     it('ConnectionID.random, ConnectionID.fromString', function () {
       let connectionID = ConnectionID.random()
       strictEqual(connectionID.toBuffer().length, 8)
@@ -22,8 +20,6 @@ suite('QuicId', function () {
   })
 
   suite('PacketNumber', function () {
-    const PacketNumber = QuicId.PacketNumber
-
     it('new PacketNumber', function () {
       throws(() => new PacketNumber(bufferFromBytes([])))
       let packetNumber = new PacketNumber(bufferFromBytes([0x0]))
@@ -139,8 +135,6 @@ suite('QuicId', function () {
   })
 
   suite('StreamID', function () {
-    const StreamID = QuicId.StreamID
-
     it('new StreamID', function () {
       throws(() => new StreamID(bufferFromBytes([])))
 
@@ -256,8 +250,6 @@ suite('QuicId', function () {
   })
 
   suite('SocketAddress', function () {
-    const SocketAddress = QuicId.SocketAddress
-
     it('SocketAddress, IPv4', function () {
       let socketAddress = SocketAddress.fromObject(
         {port: 3000, family: 'IPv4', address: '127.0.0.1'})
@@ -296,8 +288,6 @@ suite('QuicId', function () {
   })
 
   suite('Offset', function () {
-    const Offset = QuicId.Offset
-
     it('new Offset', function () {
       let offset = new Offset(bufferFromBytes([]))
       strictEqual(offset.value, 0)

@@ -7,10 +7,10 @@
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual } = require('assert')
 
-const QuicTag = require('../lib/tag')
-const { bufferFromBytes } = require('./util')
+const { QuicTag } = require('../lib/tag')
+const { bufferFromBytes } = require('./common')
 
-suite('QuicTag', function () {
+suite('QUIC Tag', function () {
   it('QuicTag.fromBuffer', function () {
     let buf = bufferFromBytes([
       // message tag (kPRST)

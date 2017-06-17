@@ -6,32 +6,29 @@
 const { suite, it } = require('tman')
 const { ok, deepEqual } = require('assert')
 
-const QuicId = require('../lib/id')
-const QuicPacket = require('../lib/packet')
-const { bufferFromBytes } = require('./util')
+const { getVersions, isSupportedVersion, PacketNumber, ConnectionID, SocketAddress } = require('../lib/protocol')
+const { decodePacket, ResetPacket, NegotiationPacket } = require('../lib/packet')
+const { bufferFromBytes } = require('./common')
 
-suite('QuicPacket', function () {
+suite('QUIC Packet', function () {
   suite('ResetPacket and parse', function () {
-    const ResetPacket = QuicPacket.ResetPacket
-
     it('new ResetPacket and parse resetPacket buf', function () {
-      let connectionID = QuicId.ConnectionID.random()
+      let connectionID = ConnectionID.random()
       let nonceProof = bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB
       ])
-      let packetNumber = QuicId.PacketNumber.fromValue(1)
-      let socketAddress = new QuicId.SocketAddress(bufferFromBytes([
+      let packetNumber = PacketNumber.fromValue(1)
+      let socketAddress = new SocketAddress(bufferFromBytes([
         0x02, 0x00,
         0x04, 0x1F, 0xC6, 0x2C,
         0xBB, 0x01
       ]))
       let resetPacket = new ResetPacket(connectionID, nonceProof, packetNumber, socketAddress)
-      ok(resetPacket instanceof QuicPacket)
 
       let buf = resetPacket.toBuffer()
-      let res = QuicPacket.fromBuffer(buf, true)
-      ok(res instanceof QuicPacket)
+      let res = decodePacket(buf, true)
+      ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
       ok(resetPacket.packetNumber.equals(res.packetNumber))
@@ -41,18 +38,15 @@ suite('QuicPacket', function () {
   })
 
   suite('NegotiationPacket and parse', function () {
-    const NegotiationPacket = QuicPacket.NegotiationPacket
-
     it('new NegotiationPacket and parse negotiationPacket buf', function () {
-      let connectionID = QuicId.ConnectionID.random()
+      let connectionID = ConnectionID.random()
       let negotiationPacket = NegotiationPacket.fromConnectionID(connectionID)
-      ok(negotiationPacket instanceof QuicPacket)
-      deepEqual(negotiationPacket.versions, QuicPacket.QUIC_VERSIONS)
-      ok(QuicPacket.isValidVersion(negotiationPacket.versions[0]))
+      deepEqual(negotiationPacket.versions, getVersions())
+      ok(isSupportedVersion(negotiationPacket.versions[0]))
 
       let buf = negotiationPacket.toBuffer()
-      let res = QuicPacket.fromBuffer(buf, true)
-      ok(res instanceof QuicPacket)
+      let res = decodePacket(buf, true)
+      ok(res instanceof NegotiationPacket)
       ok(negotiationPacket.flag === res.flag)
       ok(negotiationPacket.connectionID.equals(res.connectionID))
       deepEqual(negotiationPacket.versions, res.versions)
