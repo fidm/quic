@@ -8,8 +8,8 @@ const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual, throws } = require('assert')
 
 const { StreamID, Offset, PacketNumber } = require('../lib/protocol')
-const { PaddingFrame, ResetStreamFrame, ConnectionCloseFrame, GoAwayFrame, WindowUpdateFrame, BlockedFrame,
-  StopWaitingFrame, PingFrame, CongestionFrame, StreamFrame } = require('../lib/frame')
+const { StreamFrame, PaddingFrame, RstStreamFrame, ConnectionCloseFrame, GoAwayFrame, WindowUpdateFrame, BlockedFrame,
+  StopWaitingFrame, PingFrame, CongestionFeedbackFrame } = require('../lib/frame')
 const { QuicError } = require('../lib/error')
 const { bufferFromBytes } = require('./common')
 
@@ -98,7 +98,75 @@ suite('QUIC Frame', function () {
     })
   })
 
-  suite('PaddingFrame', function () {
+  suite.skip('ACK Frame', function () {})
+
+  suite('STOP_WAITING Frame', function () {
+    it('new StopWaitingFrame', function () {
+      let headerPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x1f]))
+      let leastUnackedPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x0f]))
+      let stopWaitingFrame = new StopWaitingFrame(
+        headerPacketNumber.delta(leastUnackedPacketNumber), headerPacketNumber.byteLen)
+
+      strictEqual(stopWaitingFrame.type, 6)
+      ok(stopWaitingFrame.toBuffer().equals(bufferFromBytes([
+        0x06,
+        0x00, 0x10
+      ])))
+      deepEqual(stopWaitingFrame,
+        StopWaitingFrame.fromBuffer(stopWaitingFrame.toBuffer(), headerPacketNumber.byteLen))
+      ok(leastUnackedPacketNumber.equals(
+        stopWaitingFrame.toPacketNumber(headerPacketNumber)))
+    })
+  })
+
+  suite('WINDOW_UPDATE Frame', function () {
+    it('new WindowUpdateFrame with StreamID(0)', function () {
+      let streamID = StreamID.fromValue(0)
+      let offset = new Offset(bufferFromBytes([0xff, 0xff, 0xff, 0xff]))
+      let windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
+
+      strictEqual(windowUpdateFrame.type, 4)
+      ok(windowUpdateFrame.toBuffer().equals(bufferFromBytes([
+        0x04,
+        0x00, 0x00, 0x00, 0x00,
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00
+      ])))
+      deepEqual(windowUpdateFrame,
+        WindowUpdateFrame.fromBuffer(windowUpdateFrame.toBuffer()))
+    })
+  })
+
+  suite('BLOCKED Frame', function () {
+    it('new BlockedFrame with StreamID(0)', function () {
+      let streamID = StreamID.fromValue(0)
+      let blockedFrame = new BlockedFrame(streamID)
+
+      strictEqual(blockedFrame.type, 5)
+      ok(blockedFrame.toBuffer().equals(bufferFromBytes([
+        0x05,
+        0x00, 0x00, 0x00, 0x00
+      ])))
+      deepEqual(blockedFrame,
+        BlockedFrame.fromBuffer(blockedFrame.toBuffer()))
+    })
+  })
+
+  suite('CONGESTION_FEEDBACK Frame', function () {
+    it('new CongestionFeedbackFrame', function () {
+      let congestionFeedbackFrame = new CongestionFeedbackFrame(0b00100000)
+
+      strictEqual(congestionFeedbackFrame.type, 32)
+      ok(congestionFeedbackFrame.toBuffer().equals(bufferFromBytes([0b00100000])))
+      deepEqual(congestionFeedbackFrame, CongestionFeedbackFrame.fromBuffer(congestionFeedbackFrame.toBuffer()))
+    })
+
+    it('when invalid CongestionFeedbackFrame type', function () {
+      throws(() => CongestionFeedbackFrame.fromBuffer(bufferFromBytes([0b01100000])),
+        /INVALID_FRAME_DATA/)
+    })
+  })
+
+  suite('PADDING Frame', function () {
     it('new PaddingFrame', function () {
       let paddingFrame = new PaddingFrame()
 
@@ -108,26 +176,36 @@ suite('QUIC Frame', function () {
     })
   })
 
-  suite('ResetStreamFrame', function () {
-    it('new ResetStreamFrame', function () {
+  suite('RST_STREAM Frame', function () {
+    it('new RstStreamFrame', function () {
       let streamID = StreamID.fromValue(1)
       let error = new QuicError(1)
       let offset = new Offset(
         bufferFromBytes([0x01, 0x2, 0x03, 0x04, 0x05, 0x06]))
-      let resetStreamFrame = new ResetStreamFrame(streamID, offset, error)
+      let rstStreamFrame = new RstStreamFrame(streamID, offset, error)
 
-      strictEqual(resetStreamFrame.type, 1)
-      ok(resetStreamFrame.toBuffer().equals(bufferFromBytes([
+      strictEqual(rstStreamFrame.type, 1)
+      ok(rstStreamFrame.toBuffer().equals(bufferFromBytes([
         0x01,
         0x01, 0x00, 0x00, 0x00,
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00,
         0x01, 0x00, 0x00, 0x00
       ])))
-      deepEqual(resetStreamFrame, ResetStreamFrame.fromBuffer(resetStreamFrame.toBuffer()))
+      deepEqual(rstStreamFrame, RstStreamFrame.fromBuffer(rstStreamFrame.toBuffer()))
     })
   })
 
-  suite('ConnectionCloseFrame', function () {
+  suite('PING frame', function () {
+    it('new PingFrame', function () {
+      let pingFrame = new PingFrame()
+
+      strictEqual(pingFrame.type, 7)
+      ok(pingFrame.toBuffer().equals(bufferFromBytes([0x07])))
+      deepEqual(pingFrame, PingFrame.fromBuffer(pingFrame.toBuffer()))
+    })
+  })
+
+  suite('CONNECTION_CLOSE frame', function () {
     it('new ConnectionCloseFrame with QuicError(0)', function () {
       let error = new QuicError(0)
       let connectionCloseFrame = new ConnectionCloseFrame(error)
@@ -158,7 +236,7 @@ suite('QUIC Frame', function () {
     })
   })
 
-  suite('GoAwayFrame', function () {
+  suite('GOAWAY Frame', function () {
     it('new GoAwayFrame with QuicError(0)', function () {
       let error = new QuicError(0)
       let streamID = StreamID.fromValue(7)
@@ -188,82 +266,6 @@ suite('QUIC Frame', function () {
         'Connection has reached an invalid state.'
       ])))
       deepEqual(goAwayFrame, GoAwayFrame.fromBuffer(goAwayFrame.toBuffer()))
-    })
-  })
-
-  suite('WindowUpdateFrame', function () {
-    it('new WindowUpdateFrame with StreamID(0)', function () {
-      let streamID = StreamID.fromValue(0)
-      let offset = new Offset(bufferFromBytes([0xff, 0xff, 0xff, 0xff]))
-      let windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
-
-      strictEqual(windowUpdateFrame.type, 4)
-      ok(windowUpdateFrame.toBuffer().equals(bufferFromBytes([
-        0x04,
-        0x00, 0x00, 0x00, 0x00,
-        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00
-      ])))
-      deepEqual(windowUpdateFrame,
-        WindowUpdateFrame.fromBuffer(windowUpdateFrame.toBuffer()))
-    })
-  })
-
-  suite('BlockedFrame', function () {
-    it('new BlockedFrame with StreamID(0)', function () {
-      let streamID = StreamID.fromValue(0)
-      let blockedFrame = new BlockedFrame(streamID)
-
-      strictEqual(blockedFrame.type, 5)
-      ok(blockedFrame.toBuffer().equals(bufferFromBytes([
-        0x05,
-        0x00, 0x00, 0x00, 0x00
-      ])))
-      deepEqual(blockedFrame,
-        BlockedFrame.fromBuffer(blockedFrame.toBuffer()))
-    })
-  })
-
-  suite('StopWaitingFrame', function () {
-    it('new StopWaitingFrame', function () {
-      let headerPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x1f]))
-      let leastUnackedPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x0f]))
-      let stopWaitingFrame = new StopWaitingFrame(
-        headerPacketNumber.delta(leastUnackedPacketNumber), headerPacketNumber.byteLen)
-
-      strictEqual(stopWaitingFrame.type, 6)
-      ok(stopWaitingFrame.toBuffer().equals(bufferFromBytes([
-        0x06,
-        0x00, 0x10
-      ])))
-      deepEqual(stopWaitingFrame,
-        StopWaitingFrame.fromBuffer(stopWaitingFrame.toBuffer(), headerPacketNumber.byteLen))
-      ok(leastUnackedPacketNumber.equals(
-        stopWaitingFrame.toPacketNumber(headerPacketNumber)))
-    })
-  })
-
-  suite('PingFrame', function () {
-    it('new PingFrame', function () {
-      let pingFrame = new PingFrame()
-
-      strictEqual(pingFrame.type, 7)
-      ok(pingFrame.toBuffer().equals(bufferFromBytes([0x07])))
-      deepEqual(pingFrame, PingFrame.fromBuffer(pingFrame.toBuffer()))
-    })
-  })
-
-  suite('CongestionFrame', function () {
-    it('new CongestionFrame', function () {
-      let congestionFrame = new CongestionFrame(0b00100000)
-
-      strictEqual(congestionFrame.type, 32)
-      ok(congestionFrame.toBuffer().equals(bufferFromBytes([0b00100000])))
-      deepEqual(congestionFrame, CongestionFrame.fromBuffer(congestionFrame.toBuffer()))
-    })
-
-    it('when invalid CongestionFrame type', function () {
-      throws(() => CongestionFrame.fromBuffer(bufferFromBytes([0b01100000])),
-        /INVALID_FRAME_DATA/)
     })
   })
 })
