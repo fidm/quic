@@ -8,7 +8,7 @@ const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual, throws } = require('assert')
 
 const { StreamID, Offset, PacketNumber } = require('../lib/protocol')
-const { StreamFrame, PaddingFrame, RstStreamFrame, ConnectionCloseFrame, GoAwayFrame, WindowUpdateFrame, BlockedFrame,
+const { StreamFrame, AckFrame, PaddingFrame, RstStreamFrame, ConnectionCloseFrame, GoAwayFrame, WindowUpdateFrame, BlockedFrame,
   StopWaitingFrame, PingFrame, CongestionFeedbackFrame } = require('../lib/frame')
 const { QuicError } = require('../lib/error')
 const { bufferFromBytes } = require('./common')
@@ -19,11 +19,9 @@ suite('QUIC Frame', function () {
       let streamID = StreamID.fromValue(1)
       let offset = Offset.fromValue(0)
       let data = bufferFromBytes(['abcdefg'])
-      let streamFrame = StreamFrame.fromData(streamID, offset, data, false)
+      let streamFrame = new StreamFrame(streamID, offset, data, false)
 
-      strictEqual(streamFrame.type, 0b10100000)
       strictEqual(streamFrame.isFIN, false)
-
       let buf = streamFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([
         0b10100000,
@@ -36,11 +34,9 @@ suite('QUIC Frame', function () {
       streamID = streamID.nextID()
       offset = offset.nextOffset(data.length)
       data = bufferFromBytes(['higklmn'])
-      streamFrame = StreamFrame.fromData(streamID, offset, data, false)
+      streamFrame = new StreamFrame(streamID, offset, data, false)
 
-      strictEqual(streamFrame.type, 0b10100100)
       strictEqual(streamFrame.isFIN, false)
-
       buf = streamFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([
         0b10100100,
@@ -54,9 +50,8 @@ suite('QUIC Frame', function () {
       streamID = streamID.nextID()
       offset = offset.nextOffset(data.length)
       data = bufferFromBytes(['opqrst'])
-      streamFrame = StreamFrame.fromData(streamID, offset, data, false)
+      streamFrame = new StreamFrame(streamID, offset, data, false)
 
-      strictEqual(streamFrame.type, 0b10100100)
       strictEqual(streamFrame.isFIN, false)
       buf = streamFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([
@@ -71,9 +66,8 @@ suite('QUIC Frame', function () {
       streamID = streamID.nextID()
       offset = offset.nextOffset(data.length)
       data = bufferFromBytes(['uvwxyz'])
-      streamFrame = StreamFrame.fromData(streamID, offset, data, true)
+      streamFrame = new StreamFrame(streamID, offset, data, true)
 
-      strictEqual(streamFrame.type, 0b11100100)
       strictEqual(streamFrame.isFIN, true)
       buf = streamFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([
@@ -90,7 +84,7 @@ suite('QUIC Frame', function () {
       let streamID = StreamID.fromValue(1)
       let offset = Offset.fromValue(0)
       let data = bufferFromBytes(['abcd'])
-      let streamFrame = StreamFrame.fromData(streamID, offset, data, false)
+      let streamFrame = new StreamFrame(streamID, offset, data, false)
       let buf = streamFrame.toBuffer()
 
       throws(() => StreamFrame.fromBuffer(buf.slice(0, 1)), /INVALID_STREAM_DATA/)
@@ -104,7 +98,19 @@ suite('QUIC Frame', function () {
     })
   })
 
-  suite.skip('ACK Frame', function () {})
+  suite('ACK Frame', function () {
+    it('a sample ACK frame', function () {
+      let buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
+      let ackFrame = AckFrame.fromBuffer(buf, 0)
+      ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x1c)))
+      ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x1)))
+      ok(ackFrame.delayTime === 142)
+      ok(ackFrame.hasMissingRanges() === false)
+
+      // ignore Timestamps
+      deepEqual(ackFrame.toBuffer(), bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x0]))
+    })
+  })
 
   suite('STOP_WAITING Frame', function () {
     it('new StopWaitingFrame', function () {

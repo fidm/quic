@@ -45,14 +45,14 @@ suite('common', function () {
   suite('UFloat16', function () {
     function uint16Buf (val) {
       let buf = Buffer.alloc(2)
-      buf.writeUInt16BE(val, 0)
+      buf.writeUInt16LE(val, 0)
       return buf
     }
 
     it('Float16MaxValue, readUFloat16, writeUFloat16', function () {
       let buf = Buffer.from([0xff, 0xff])
       strictEqual(readUFloat16(buf), Float16MaxValue)
-      ok(writeUFloat16(readUFloat16(buf)).equals(buf))
+      ok(writeUFloat16(Buffer.alloc(2), readUFloat16(buf), 0).equals(buf))
     })
 
     it('writeUFloat16', function () {
@@ -120,7 +120,7 @@ suite('common', function () {
       ]
 
       for (let data of testCases) {
-        ok(writeUFloat16(data[0]).equals(uint16Buf(data[1])))
+        ok(writeUFloat16(Buffer.alloc(2), data[0], 0).equals(uint16Buf(data[1])))
       }
     })
 
