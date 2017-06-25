@@ -321,7 +321,7 @@ suite('QUIC Protocol', function () {
 
       throws(() => new Offset(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x1, 0x0
+        0x1, 0x0, 0x0, 0x1
       ])))
     })
 
@@ -361,7 +361,7 @@ suite('QUIC Protocol', function () {
       strictEqual(offset.value, value)
       ok(offset.toBuffer().equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x0, 0x1])))
 
-      value = 0x1000000000000 // > 48 bit
+      value = 0x100000000000000 // > MaxOffset
       throws(() => Offset.fromValue(value))
     })
 

@@ -19,72 +19,78 @@ suite('QUIC Frame', function () {
       let streamID = StreamID.fromValue(1)
       let offset = Offset.fromValue(0)
       let data = bufferFromBytes(['abcdefg'])
-      let streamFrame = new StreamFrame(streamID, offset, data, false)
+      let streamFrame = StreamFrame.fromData(streamID, offset, data, false)
 
       strictEqual(streamFrame.type, 0b10100000)
       strictEqual(streamFrame.isFIN, false)
-      ok(streamFrame.toBuffer().equals(bufferFromBytes([
+
+      let buf = streamFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0b10100000,
         0x1,
         0x7, 0x0,
         'abcdefg'
       ])))
-      deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+      deepEqual(buf, StreamFrame.fromBuffer(buf, 0).toBuffer())
 
       streamID = streamID.nextID()
       offset = offset.nextOffset(data.length)
       data = bufferFromBytes(['higklmn'])
-      streamFrame = new StreamFrame(streamID, offset, data, false)
+      streamFrame = StreamFrame.fromData(streamID, offset, data, false)
 
       strictEqual(streamFrame.type, 0b10100100)
       strictEqual(streamFrame.isFIN, false)
-      ok(streamFrame.toBuffer().equals(bufferFromBytes([
+
+      buf = streamFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0b10100100,
         0x3,
         0x7, 0x0,
         0x7, 0x0,
         'higklmn'
       ])))
-      deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+      deepEqual(buf, StreamFrame.fromBuffer(buf, 0).toBuffer())
 
       streamID = streamID.nextID()
       offset = offset.nextOffset(data.length)
       data = bufferFromBytes(['opqrst'])
-      streamFrame = new StreamFrame(streamID, offset, data, false)
+      streamFrame = StreamFrame.fromData(streamID, offset, data, false)
 
       strictEqual(streamFrame.type, 0b10100100)
       strictEqual(streamFrame.isFIN, false)
-      ok(streamFrame.toBuffer().equals(bufferFromBytes([
+      buf = streamFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0b10100100,
         0x5,
         0xe, 0x0,
         0x6, 0x0,
         'opqrst'
       ])))
-      deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+      deepEqual(buf, StreamFrame.fromBuffer(buf, 0).toBuffer())
 
       streamID = streamID.nextID()
       offset = offset.nextOffset(data.length)
       data = bufferFromBytes(['uvwxyz'])
-      streamFrame = new StreamFrame(streamID, offset, data, true)
+      streamFrame = StreamFrame.fromData(streamID, offset, data, true)
 
       strictEqual(streamFrame.type, 0b11100100)
       strictEqual(streamFrame.isFIN, true)
-      ok(streamFrame.toBuffer().equals(bufferFromBytes([
+      buf = streamFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0b11100100,
         0x7,
         0x14, 0x0,
         0x6, 0x0,
         'uvwxyz'
       ])))
-      deepEqual(streamFrame, StreamFrame.fromBuffer(streamFrame.toBuffer()))
+      deepEqual(buf, StreamFrame.fromBuffer(buf, 0).toBuffer())
     })
 
     it('when invalid StreamFrame type', function () {
       let streamID = StreamID.fromValue(1)
       let offset = Offset.fromValue(0)
       let data = bufferFromBytes(['abcd'])
-      let streamFrame = new StreamFrame(streamID, offset, data, false)
+      let streamFrame = StreamFrame.fromData(streamID, offset, data, false)
       let buf = streamFrame.toBuffer()
 
       throws(() => StreamFrame.fromBuffer(buf.slice(0, 1)), /INVALID_STREAM_DATA/)
@@ -94,7 +100,7 @@ suite('QUIC Frame', function () {
       throws(() => StreamFrame.fromBuffer(buf.slice(0, 5)), /INVALID_STREAM_DATA/)
       throws(() => StreamFrame.fromBuffer(buf.slice(0, 6)), /INVALID_STREAM_DATA/)
       throws(() => StreamFrame.fromBuffer(buf.slice(0, 7)), /INVALID_STREAM_DATA/)
-      deepEqual(streamFrame, StreamFrame.fromBuffer(buf.slice(0, streamFrame.byteLen)))
+      deepEqual(buf, StreamFrame.fromBuffer(buf.slice(0, streamFrame.byteLen), 0).toBuffer())
     })
   })
 
@@ -104,18 +110,16 @@ suite('QUIC Frame', function () {
     it('new StopWaitingFrame', function () {
       let headerPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x1f]))
       let leastUnackedPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x0f]))
-      let stopWaitingFrame = new StopWaitingFrame(
-        headerPacketNumber.delta(leastUnackedPacketNumber), headerPacketNumber.byteLen)
+      let stopWaitingFrame = new StopWaitingFrame(headerPacketNumber, leastUnackedPacketNumber)
 
       strictEqual(stopWaitingFrame.type, 6)
-      ok(stopWaitingFrame.toBuffer().equals(bufferFromBytes([
+      ok(leastUnackedPacketNumber.equals(stopWaitingFrame.leastUnacked))
+      let buf = stopWaitingFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x06,
         0x00, 0x10
       ])))
-      deepEqual(stopWaitingFrame,
-        StopWaitingFrame.fromBuffer(stopWaitingFrame.toBuffer(), headerPacketNumber.byteLen))
-      ok(leastUnackedPacketNumber.equals(
-        stopWaitingFrame.toPacketNumber(headerPacketNumber)))
+      deepEqual(buf, StopWaitingFrame.fromBuffer(buf, 0, headerPacketNumber).toBuffer())
     })
   })
 
@@ -126,13 +130,13 @@ suite('QUIC Frame', function () {
       let windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
 
       strictEqual(windowUpdateFrame.type, 4)
-      ok(windowUpdateFrame.toBuffer().equals(bufferFromBytes([
+      let buf = windowUpdateFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x04,
         0x00, 0x00, 0x00, 0x00,
         0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00
       ])))
-      deepEqual(windowUpdateFrame,
-        WindowUpdateFrame.fromBuffer(windowUpdateFrame.toBuffer()))
+      deepEqual(buf, WindowUpdateFrame.fromBuffer(buf, 0).toBuffer())
     })
   })
 
@@ -142,12 +146,12 @@ suite('QUIC Frame', function () {
       let blockedFrame = new BlockedFrame(streamID)
 
       strictEqual(blockedFrame.type, 5)
-      ok(blockedFrame.toBuffer().equals(bufferFromBytes([
+      let buf = blockedFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x05,
         0x00, 0x00, 0x00, 0x00
       ])))
-      deepEqual(blockedFrame,
-        BlockedFrame.fromBuffer(blockedFrame.toBuffer()))
+      deepEqual(buf, BlockedFrame.fromBuffer(buf, 0).toBuffer())
     })
   })
 
@@ -156,12 +160,13 @@ suite('QUIC Frame', function () {
       let congestionFeedbackFrame = new CongestionFeedbackFrame(0b00100000)
 
       strictEqual(congestionFeedbackFrame.type, 32)
-      ok(congestionFeedbackFrame.toBuffer().equals(bufferFromBytes([0b00100000])))
-      deepEqual(congestionFeedbackFrame, CongestionFeedbackFrame.fromBuffer(congestionFeedbackFrame.toBuffer()))
+      let buf = congestionFeedbackFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([0b00100000])))
+      deepEqual(buf, CongestionFeedbackFrame.fromBuffer(buf, 0).toBuffer())
     })
 
     it('when invalid CongestionFeedbackFrame type', function () {
-      throws(() => CongestionFeedbackFrame.fromBuffer(bufferFromBytes([0b01100000])),
+      throws(() => CongestionFeedbackFrame.fromBuffer(bufferFromBytes([0b01100000]), 0),
         /INVALID_FRAME_DATA/)
     })
   })
@@ -171,8 +176,9 @@ suite('QUIC Frame', function () {
       let paddingFrame = new PaddingFrame()
 
       strictEqual(paddingFrame.type, 0)
-      ok(paddingFrame.toBuffer().equals(bufferFromBytes([0x00])))
-      deepEqual(paddingFrame, PaddingFrame.fromBuffer(paddingFrame.toBuffer()))
+      let buf = paddingFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([0x00])))
+      deepEqual(buf, PaddingFrame.fromBuffer(buf, 0).toBuffer())
     })
   })
 
@@ -185,13 +191,14 @@ suite('QUIC Frame', function () {
       let rstStreamFrame = new RstStreamFrame(streamID, offset, error)
 
       strictEqual(rstStreamFrame.type, 1)
-      ok(rstStreamFrame.toBuffer().equals(bufferFromBytes([
+      let buf = rstStreamFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x01,
         0x01, 0x00, 0x00, 0x00,
         0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00,
         0x01, 0x00, 0x00, 0x00
       ])))
-      deepEqual(rstStreamFrame, RstStreamFrame.fromBuffer(rstStreamFrame.toBuffer()))
+      deepEqual(buf, RstStreamFrame.fromBuffer(buf, 0).toBuffer())
     })
   })
 
@@ -200,8 +207,9 @@ suite('QUIC Frame', function () {
       let pingFrame = new PingFrame()
 
       strictEqual(pingFrame.type, 7)
-      ok(pingFrame.toBuffer().equals(bufferFromBytes([0x07])))
-      deepEqual(pingFrame, PingFrame.fromBuffer(pingFrame.toBuffer()))
+      let buf = pingFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([0x07])))
+      deepEqual(buf, PingFrame.fromBuffer(buf, 0).toBuffer())
     })
   })
 
@@ -211,13 +219,13 @@ suite('QUIC Frame', function () {
       let connectionCloseFrame = new ConnectionCloseFrame(error)
 
       strictEqual(connectionCloseFrame.type, 2)
-      ok(connectionCloseFrame.toBuffer().equals(bufferFromBytes([
+      let buf = connectionCloseFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x02,
         0x00, 0x00, 0x00, 0x00,
         0x00, 0x00
       ])))
-      deepEqual(connectionCloseFrame,
-        ConnectionCloseFrame.fromBuffer(connectionCloseFrame.toBuffer()))
+      deepEqual(buf, ConnectionCloseFrame.fromBuffer(buf, 0).toBuffer())
     })
 
     it('new ConnectionCloseFrame with QuicError(1)', function () {
@@ -225,14 +233,14 @@ suite('QUIC Frame', function () {
       let connectionCloseFrame = new ConnectionCloseFrame(error)
 
       strictEqual(connectionCloseFrame.type, 2)
-      ok(connectionCloseFrame.toBuffer().equals(bufferFromBytes([
+      let buf = connectionCloseFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x02,
         0x01, 0x00, 0x00, 0x00,
         0x28, 0x00,
         'Connection has reached an invalid state.'
       ])))
-      deepEqual(connectionCloseFrame,
-        ConnectionCloseFrame.fromBuffer(connectionCloseFrame.toBuffer()))
+      deepEqual(buf, ConnectionCloseFrame.fromBuffer(buf, 0).toBuffer())
     })
   })
 
@@ -240,32 +248,34 @@ suite('QUIC Frame', function () {
     it('new GoAwayFrame with QuicError(0)', function () {
       let error = new QuicError(0)
       let streamID = StreamID.fromValue(7)
-      let goAwayFrame = new GoAwayFrame(error, streamID)
+      let goAwayFrame = new GoAwayFrame(streamID, error)
 
       strictEqual(goAwayFrame.type, 3)
-      ok(goAwayFrame.toBuffer().equals(bufferFromBytes([
+      let buf = goAwayFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x03,
         0x00, 0x00, 0x00, 0x00,
         0x07, 0x00, 0x00, 0x00,
         0x00, 0x00
       ])))
-      deepEqual(goAwayFrame, GoAwayFrame.fromBuffer(goAwayFrame.toBuffer()))
+      deepEqual(buf, GoAwayFrame.fromBuffer(buf, 0).toBuffer())
     })
 
     it('new GoAwayFrame with QuicError(1)', function () {
       let error = new QuicError(1)
       let streamID = StreamID.fromValue(7)
-      let goAwayFrame = new GoAwayFrame(error, streamID)
+      let goAwayFrame = new GoAwayFrame(streamID, error)
 
       strictEqual(goAwayFrame.type, 3)
-      ok(goAwayFrame.toBuffer().equals(bufferFromBytes([
+      let buf = goAwayFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
         0x03,
         0x01, 0x00, 0x00, 0x00,
         0x07, 0x00, 0x00, 0x00,
         0x28, 0x00,
         'Connection has reached an invalid state.'
       ])))
-      deepEqual(goAwayFrame, GoAwayFrame.fromBuffer(goAwayFrame.toBuffer()))
+      deepEqual(buf, GoAwayFrame.fromBuffer(buf, 0).toBuffer())
     })
   })
 })
