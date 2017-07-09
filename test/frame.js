@@ -99,17 +99,86 @@ suite('QUIC Frame', function () {
   })
 
   suite('ACK Frame', function () {
-    it('a sample ACK frame', function () {
-      let buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
-      let ackFrame = AckFrame.fromBuffer(buf, 0)
-      ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x1c)))
-      ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x1)))
-      ok(ackFrame.delayTime === 142)
-      ok(ackFrame.hasMissingRanges() === false)
+    suite('parsing', function () {
+      it('a sample ACK frame', function () {
+        let buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x1c)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x1)))
+        ok(ackFrame.delayTime === 142)
+        ok(ackFrame.hasMissingRanges() === false)
 
-      // ignore Timestamps
-      deepEqual(ackFrame.toBuffer(), bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x0]))
+        // ignore Timestamps
+        deepEqual(ackFrame.toBuffer(), bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x0]))
+      })
+
+      it('a frame without a timestamp', function () {
+        let buf = bufferFromBytes([0x40, 0x3, 0x50, 0x15, 0x3, 0x0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x3)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x1)))
+        ok(ackFrame.delayTime === 6816)
+        ok(ackFrame.hasMissingRanges() === false)
+      })
+
+      it('a frame where the largest acked is 0', function () {
+        let buf = bufferFromBytes([0x40, 0x0, 0xff, 0xff, 0x0, 0x0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x0)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x0)))
+        ok(ackFrame.hasMissingRanges() === false)
+      })
+
+      it('a frame with a 48 bit packet number', function () {
+        let buf = bufferFromBytes([0x4c, 0x37, 0x13, 0xad, 0xfb, 0xca, 0xde, 0x0, 0x0, 0x5, 0x1, 0, 0, 0, 0, 0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0xdecafbad1337)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0xdecafbad1337 - 5 + 1)))
+        ok(ackFrame.hasMissingRanges() === false)
+      })
+
+      it('a frame with 1 ACKed packet', function () {
+        let buf = bufferFromBytes([0x40, 0x10, 0x8e, 0x0, 0x1, 0x0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x10)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x10)))
+        ok(ackFrame.hasMissingRanges() === false)
+      })
+
+      it('a frame, when packet 1 was lost', function () {
+        let buf = bufferFromBytes([0x40, 0x9, 0x92, 0x7, 0x8, 0x3, 0x2, 0x69, 0xa3, 0x0, 0x0, 0x1, 0xc9, 0x2, 0x0, 0x46, 0x10])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(9)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(2)))
+        ok(ackFrame.hasMissingRanges() === false)
+      })
+
+      it('a frame with multiple timestamps', function () {
+        let buf = bufferFromBytes([0x40, 0x10, 0x0, 0x0, 0x10, 0x4, 0x1, 0x6b, 0x26, 0x4, 0x0, 0x3, 0, 0, 0x2, 0, 0, 0x1, 0, 0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x10)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(1)))
+        ok(ackFrame.hasMissingRanges() === false)
+      })
+
+      it('errors when the ACK range is too large', function () {
+        // LargestAcked: 0x1c
+        // Length: 0x1d => LowestAcked would be -1
+        throws(() => {
+          let buf = bufferFromBytes([0x40, 0x1c, 0x8e, 0x0, 0x1d, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
+          AckFrame.fromBuffer(buf, 0)
+        })
+      })
+
+      it('errors when the first ACK range is empty', function () {
+        throws(() => {
+          let buf = bufferFromBytes([0x40, 0x9, 0x8e, 0x0, 0x0, 0x1, 0])
+          AckFrame.fromBuffer(buf, 0)
+        })
+      })
     })
+
+    suite('ACK blocks', function () {})
   })
 
   suite('STOP_WAITING Frame', function () {
