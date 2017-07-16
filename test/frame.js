@@ -6,9 +6,8 @@
 
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual, throws } = require('assert')
-
 const { StreamID, Offset, PacketNumber } = require('../lib/protocol')
-const { StreamFrame, AckFrame, PaddingFrame, RstStreamFrame, ConnectionCloseFrame, GoAwayFrame, WindowUpdateFrame, BlockedFrame,
+const { StreamFrame, AckFrame, AckRange, PaddingFrame, RstStreamFrame, ConnectionCloseFrame, GoAwayFrame, WindowUpdateFrame, BlockedFrame,
   StopWaitingFrame, PingFrame, CongestionFeedbackFrame } = require('../lib/frame')
 const { QuicError } = require('../lib/error')
 const { bufferFromBytes } = require('./common')
@@ -178,7 +177,166 @@ suite('QUIC Frame', function () {
       })
     })
 
-    suite('ACK blocks', function () {})
+    suite('ACK blocks', function () {
+      it('a frame with one ACK block', function () {
+        let buf = bufferFromBytes([0x60, 0x18, 0x94, 0x1, 0x1, 0x3, 0x2, 0x10, 0x2, 0x1, 0x5c, 0xd5, 0x0, 0x0, 0x0, 0x95, 0x0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x18)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x4)))
+        strictEqual(ackFrame.hasMissingRanges(), true)
+        strictEqual(ackFrame.ackRanges.length, 2)
+        deepEqual(ackFrame.ackRanges[0], new AckRange(22, 24))
+        deepEqual(ackFrame.ackRanges[1], new AckRange(4, 19))
+      })
+
+      it('rejects a frame that says it has ACK blocks in the typeByte, but doesn\'t have any', function () {
+        let buf = bufferFromBytes([0x63, 0x4, 0xff, 0xff, 0, 2, 0, 0, 0, 0, 0, 0])
+        throws(() => AckFrame.fromBuffer(buf, 0))
+      })
+
+      it('rejects a frame with invalid ACK ranges', function () {
+        // like the test before, but increased the last ACK range, such that the FirstPacketNumber would be negative
+        let buf = bufferFromBytes([0x60, 0x18, 0x94, 0x1, 0x1, 0x3, 0x2, 0x15, 0x2, 0x1, 0x5c, 0xd5, 0x0, 0x0, 0x0, 0x95, 0x0])
+        throws(() => AckFrame.fromBuffer(buf, 0))
+      })
+
+      it('a frame with multiple single packets missing', function () {
+        let buf = bufferFromBytes([0x60, 0x27, 0xda, 0x0, 0x6, 0x9, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x13, 0x2, 0x1, 0x71, 0x12, 0x3, 0x0, 0x0, 0x47, 0x2])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x27)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x1)))
+        strictEqual(ackFrame.hasMissingRanges(), true)
+        strictEqual(ackFrame.ackRanges.length, 7)
+        deepEqual(ackFrame.ackRanges[0], new AckRange(31, 39))
+        deepEqual(ackFrame.ackRanges[1], new AckRange(29, 29))
+        deepEqual(ackFrame.ackRanges[2], new AckRange(27, 27))
+        deepEqual(ackFrame.ackRanges[3], new AckRange(25, 25))
+        deepEqual(ackFrame.ackRanges[4], new AckRange(23, 23))
+        deepEqual(ackFrame.ackRanges[5], new AckRange(21, 21))
+        deepEqual(ackFrame.ackRanges[6], new AckRange(1, 19))
+      })
+
+      it('a frame with packet 1 and one more packet lost', function () {
+        let buf = bufferFromBytes([0x60, 0xc, 0x92, 0x0, 0x1, 0x1, 0x1, 0x9, 0x2, 0x2, 0x53, 0x43, 0x1, 0x0, 0x0, 0xa7, 0x0])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(12)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(2)))
+        strictEqual(ackFrame.hasMissingRanges(), true)
+        strictEqual(ackFrame.ackRanges.length, 2)
+        deepEqual(ackFrame.ackRanges[0], new AckRange(12, 12))
+        deepEqual(ackFrame.ackRanges[1], new AckRange(2, 10))
+      })
+
+      it('a frame with multiple longer ACK blocks', function () {
+        let buf = bufferFromBytes([0x60, 0x52, 0xd1, 0x0, 0x3, 0x17, 0xa, 0x10, 0x4, 0x8, 0x2, 0x12, 0x2, 0x1, 0x6c, 0xc8, 0x2, 0x0, 0x0, 0x7e, 0x1])
+        let ackFrame = AckFrame.fromBuffer(buf, 0)
+        ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x52)))
+        ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(2)))
+        strictEqual(ackFrame.hasMissingRanges(), true)
+        strictEqual(ackFrame.ackRanges.length, 4)
+        deepEqual(ackFrame.ackRanges[0], new AckRange(60, 0x52))
+        deepEqual(ackFrame.ackRanges[1], new AckRange(34, 49))
+        deepEqual(ackFrame.ackRanges[2], new AckRange(22, 29))
+        deepEqual(ackFrame.ackRanges[3], new AckRange(2, 19))
+      })
+
+      suite('more than 256 lost packets in a row', function () {
+        // 255 missing packets fit into a single ACK block
+        it('a frame with a range of 255 missing packets', function () {
+          let buf = bufferFromBytes([0x64, 0x15, 0x1, 0xce, 0x1, 0x1, 0x3, 0xff, 0x13, 0x1, 0x0, 0xb6, 0xc5, 0x0, 0x0])
+          let ackFrame = AckFrame.fromBuffer(buf, 0)
+          ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x115)))
+          ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(1)))
+          strictEqual(ackFrame.hasMissingRanges(), true)
+          strictEqual(ackFrame.ackRanges.length, 2)
+          deepEqual(ackFrame.ackRanges[0], new AckRange(20 + 255, 0x115))
+          deepEqual(ackFrame.ackRanges[1], new AckRange(1, 19))
+        })
+
+        // 256 missing packets fit into two ACK blocks
+        it('a frame with a range of 256 missing packets', function () {
+          let buf = bufferFromBytes([0x64, 0x14, 0x1, 0x96, 0x0, 0x2, 0x1, 0xff, 0x0, 0x1, 0x13, 0x1, 0x0, 0x92, 0xc0, 0x0, 0x0])
+          let ackFrame = AckFrame.fromBuffer(buf, 0)
+          ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x114)))
+          ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(1)))
+          strictEqual(ackFrame.hasMissingRanges(), true)
+          strictEqual(ackFrame.ackRanges.length, 2)
+          deepEqual(ackFrame.ackRanges[0], new AckRange(20 + 256, 0x114))
+          deepEqual(ackFrame.ackRanges[1], new AckRange(1, 19))
+        })
+
+        it('a frame with an incomplete range at the end', function () {
+          // this is a modified ACK frame that has 5 instead of originally 6 written ranges
+          // each gap is 300 packets and thus takes 2 ranges
+          // the last range is incomplete, and should be completely ignored
+          let buf = bufferFromBytes([0x64, 0x9b, 0x3, 0xc9, 0x0, 0x5 /* instead of 0x6 */, 0x1, 0xff, 0x0, 0x2d, 0x1, 0xff, 0x0, 0x2d, 0x1, 0xff, 0x0 /* 0x2d, 0x14, */, 0x1, 0x0, 0xf6, 0xbd, 0x0, 0x0])
+          let ackFrame = AckFrame.fromBuffer(buf, 0)
+          ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x39b)))
+          ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(0x141)))
+          strictEqual(ackFrame.hasMissingRanges(), true)
+          strictEqual(ackFrame.ackRanges.length, 3)
+          deepEqual(ackFrame.ackRanges[0], new AckRange(20 + 3 * 301, 20 + 3 * 301))
+          deepEqual(ackFrame.ackRanges[1], new AckRange(20 + 2 * 301, 20 + 2 * 301))
+          deepEqual(ackFrame.ackRanges[2], new AckRange(20 + 1 * 301, 20 + 1 * 301))
+        })
+
+        it('a frame with one long range, spanning 2 blocks, of missing packets', function () { // 280 missing packets
+          let buf = bufferFromBytes([0x64, 0x44, 0x1, 0xa7, 0x0, 0x2, 0x19, 0xff, 0x0, 0x19, 0x13, 0x2, 0x1, 0xb, 0x59, 0x2, 0x0, 0x0, 0xb6, 0x0])
+          let ackFrame = AckFrame.fromBuffer(buf, 0)
+          ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x144)))
+          ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(1)))
+          strictEqual(ackFrame.hasMissingRanges(), true)
+          strictEqual(ackFrame.ackRanges.length, 2)
+          deepEqual(ackFrame.ackRanges[0], new AckRange(300, 0x144))
+          deepEqual(ackFrame.ackRanges[1], new AckRange(1, 19))
+        })
+
+        it('a frame with one long range, spanning multiple blocks, of missing packets', function () { // 2345 missing packets
+          let buf = bufferFromBytes([0x64, 0x5b, 0x9, 0x66, 0x1, 0xa, 0x1f, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0x32, 0x13, 0x4, 0x3, 0xb4, 0xda, 0x1, 0x0, 0x2, 0xe0, 0x0, 0x1, 0x9a, 0x0, 0x0, 0x81, 0x0])
+          let ackFrame = AckFrame.fromBuffer(buf, 0)
+          ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x95b)))
+          ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(1)))
+          strictEqual(ackFrame.hasMissingRanges(), true)
+          strictEqual(ackFrame.ackRanges.length, 2)
+          deepEqual(ackFrame.ackRanges[0], new AckRange(2365, 0x95b))
+          deepEqual(ackFrame.ackRanges[1], new AckRange(1, 19))
+        })
+
+        it('a frame with multiple long ranges of missing packets', function () {
+          let buf = bufferFromBytes([0x65, 0x66, 0x9, 0x23, 0x1, 0x7, 0x7, 0x0, 0xff, 0x0, 0x0, 0xf5, 0x8a, 0x2, 0xc8, 0xe6, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0x23, 0x13, 0x0, 0x2, 0x1, 0x13, 0xae, 0xb, 0x0, 0x0, 0x80, 0x5])
+          let ackFrame = AckFrame.fromBuffer(buf, 0)
+          ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x966)))
+          ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(1)))
+          strictEqual(ackFrame.hasMissingRanges(), true)
+          strictEqual(ackFrame.ackRanges.length, 4)
+          deepEqual(ackFrame.ackRanges[0], new AckRange(2400, 0x966))
+          deepEqual(ackFrame.ackRanges[1], new AckRange(1250, 1899))
+          deepEqual(ackFrame.ackRanges[2], new AckRange(820, 1049))
+          deepEqual(ackFrame.ackRanges[3], new AckRange(1, 19))
+        })
+
+        it('a frame with short ranges and one long range', function () {
+          let buf = bufferFromBytes([0x64, 0x8f, 0x3, 0x65, 0x1, 0x5, 0x3d, 0x1, 0x32, 0xff, 0x0, 0xff, 0x0, 0xf0, 0x1c, 0x2, 0x13, 0x3, 0x2, 0x23, 0xaf, 0x2, 0x0, 0x1, 0x3, 0x1, 0x0, 0x8e, 0x0])
+          let ackFrame = AckFrame.fromBuffer(buf, 0)
+          ok(ackFrame.largestAcked.equals(PacketNumber.fromValue(0x38f)))
+          ok(ackFrame.lowestAcked.equals(PacketNumber.fromValue(1)))
+          strictEqual(ackFrame.hasMissingRanges(), true)
+          strictEqual(ackFrame.ackRanges.length, 4)
+          deepEqual(ackFrame.ackRanges[0], new AckRange(851, 0x38f))
+          deepEqual(ackFrame.ackRanges[1], new AckRange(800, 849))
+          deepEqual(ackFrame.ackRanges[2], new AckRange(22, 49))
+          deepEqual(ackFrame.ackRanges[3], new AckRange(1, 19))
+        })
+      })
+    })
+
+    it('errors on EOFs', function () {
+      let buf = bufferFromBytes([0x65, 0x66, 0x9, 0x23, 0x1, 0x7, 0x7, 0x0, 0xff, 0x0, 0x0, 0xf5, 0x8a, 0x2, 0xc8, 0xe6, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0x23, 0x13, 0x0, 0x2, 0x1, 0x13, 0xae, 0xb, 0x0, 0x0, 0x80, 0x5])
+      AckFrame.fromBuffer(buf, 0)
+      for (let i = 0; i < buf.length; i++) {
+        throws(() => AckFrame.fromBuffer(buf.slice(0, i), 0))
+      }
+    })
   })
 
   suite('STOP_WAITING Frame', function () {

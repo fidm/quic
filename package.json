@@ -21,9 +21,9 @@
   ],
   "dependencies": {},
   "devDependencies": {
-    "ilog": "^1.1.0",
+    "ilog": "^1.1.1",
     "standard": "^10.0.2",
-    "tman": "^1.6.9"
+    "tman": "^1.7.1"
   },
   "scripts": {
     "test": "standard && tman"
