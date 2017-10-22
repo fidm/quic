@@ -7,6 +7,7 @@
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual } = require('assert')
 
+const { Visitor } = require('../lib/common')
 const { QuicTag } = require('../lib/tag')
 const { bufferFromBytes } = require('./common')
 
@@ -39,7 +40,7 @@ suite('QUIC Tag', function () {
       0x04, 0x1F, 0xC6, 0x2C,
       0xBB, 0x01
     ])
-    let quicTag = QuicTag.fromBuffer(buf)
+    let quicTag = QuicTag.fromBuffer(Visitor.wrap(buf))
     strictEqual(quicTag.name, 'PRST')
     deepEqual(quicTag.keys, ['RNON', 'RSEQ', 'CADR'])
 

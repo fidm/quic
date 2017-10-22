@@ -6,8 +6,9 @@
 const { suite, it } = require('tman')
 const { ok, deepEqual } = require('assert')
 
-const { getVersions, isSupportedVersion, PacketNumber, ConnectionID, SocketAddress } = require('../lib/protocol')
-const { decodePacket, ResetPacket, NegotiationPacket } = require('../lib/packet')
+const { Visitor } = require('../lib/common')
+const { getVersion, getVersions, isSupportedVersion, PacketNumber, ConnectionID, SocketAddress, QUIC_SERVER } = require('../lib/protocol')
+const { parsePacket, ResetPacket, NegotiationPacket } = require('../lib/packet')
 const { bufferFromBytes } = require('./common')
 
 suite('QUIC Packet', function () {
@@ -27,7 +28,7 @@ suite('QUIC Packet', function () {
       let resetPacket = new ResetPacket(connectionID, nonceProof, packetNumber, socketAddress)
 
       let buf = resetPacket.toBuffer()
-      let res = decodePacket(buf, false)
+      let res = parsePacket(Visitor.wrap(buf), false)
       ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
@@ -45,7 +46,7 @@ suite('QUIC Packet', function () {
       ok(isSupportedVersion(negotiationPacket.versions[0]))
 
       let buf = negotiationPacket.toBuffer()
-      let res = decodePacket(buf, false)
+      let res = parsePacket(Visitor.wrap(buf), QUIC_SERVER, getVersion())
       ok(res instanceof NegotiationPacket)
       ok(negotiationPacket.flag === res.flag)
       ok(negotiationPacket.connectionID.equals(res.connectionID))
