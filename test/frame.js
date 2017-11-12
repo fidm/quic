@@ -891,12 +891,12 @@ suite('QUIC Frame', function () {
 
   suite('STOP_WAITING Frame', function () {
     it('new StopWaitingFrame', function () {
-      let headerPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x1f])).value
-      let leastUnackedPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x0f])).value
+      let headerPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x1f]))
+      let leastUnackedPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x0f]))
       let stopWaitingFrame = new StopWaitingFrame(headerPacketNumber, leastUnackedPacketNumber)
 
       strictEqual(stopWaitingFrame.type, 6)
-      ok(leastUnackedPacketNumber === stopWaitingFrame.leastUnacked)
+      ok(leastUnackedPacketNumber.equals(stopWaitingFrame.leastUnacked))
       let buf = stopWaitingFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([
         0x06,
