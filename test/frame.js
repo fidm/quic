@@ -8,10 +8,14 @@ const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual, throws } = require('assert')
 const { Visitor } = require('../lib/common')
 const { StreamID, Offset, PacketNumber } = require('../lib/protocol')
-const { StreamFrame, AckFrame, AckRange, PaddingFrame, RstStreamFrame, ConnectionCloseFrame, GoAwayFrame, WindowUpdateFrame, BlockedFrame,
-  StopWaitingFrame, PingFrame, CongestionFeedbackFrame } = require('../lib/frame')
 const { QuicError } = require('../lib/error')
 const { bufferFromBytes } = require('./common')
+const {
+  StreamFrame, AckFrame, AckRange, PaddingFrame,
+  RstStreamFrame, ConnectionCloseFrame, GoAwayFrame,
+  WindowUpdateFrame, BlockedFrame, StopWaitingFrame,
+  PingFrame, CongestionFeedbackFrame
+} = require('../lib/frame')
 
 suite('QUIC Frame', function () {
   suite('STREAM Frame', function () {
