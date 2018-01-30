@@ -11,7 +11,7 @@ const { StreamID, Offset, PacketNumber } = require('../lib/protocol')
 const { QuicError } = require('../lib/error')
 const { bufferFromBytes } = require('./common')
 const {
-  StreamFrame, AckFrame, AckRange, PaddingFrame,
+  parseFrame, StreamFrame, AckFrame, AckRange, PaddingFrame,
   RstStreamFrame, ConnectionCloseFrame, GoAwayFrame,
   WindowUpdateFrame, BlockedFrame, StopWaitingFrame,
   PingFrame, CongestionFeedbackFrame
@@ -84,6 +84,16 @@ suite('QUIC Frame', function () {
       ok(buf.equals(StreamFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
     })
 
+    it('parse with parseFrame', function () {
+      let streamID = StreamID.fromValue(1)
+      let offset = Offset.fromValue(0)
+      let data = bufferFromBytes(['abcd'])
+      let streamFrame = new StreamFrame(streamID, offset, data, false)
+      let buf = streamFrame.toBuffer()
+
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
+    })
+
     it('when invalid StreamFrame type', function () {
       let streamID = StreamID.fromValue(1)
       let offset = Offset.fromValue(0)
@@ -107,6 +117,18 @@ suite('QUIC Frame', function () {
       it('a sample ACK frame', function () {
         let buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
         let ackFrame = AckFrame.fromBuffer(Visitor.wrap(buf))
+        ok(ackFrame.largestAcked === 0x1c)
+        ok(ackFrame.lowestAcked === 0x1)
+        ok(ackFrame.delayTime === 142)
+        ok(ackFrame.hasMissingRanges() === false)
+
+        // ignore Timestamps
+        deepEqual(ackFrame.toBuffer(), bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x0]))
+      })
+
+      it('parse with parseFrame', function () {
+        let buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
+        let ackFrame = parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1))
         ok(ackFrame.largestAcked === 0x1c)
         ok(ackFrame.lowestAcked === 0x1)
         ok(ackFrame.delayTime === 142)
@@ -908,6 +930,21 @@ suite('QUIC Frame', function () {
       ])))
       ok(buf.equals(StopWaitingFrame.fromBuffer(Visitor.wrap(buf), headerPacketNumber).toBuffer()))
     })
+
+    it('parse with parseFrame', function () {
+      let headerPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x1f]))
+      let leastUnackedPacketNumber = new PacketNumber(bufferFromBytes([0xff, 0x0f]))
+      let stopWaitingFrame = new StopWaitingFrame(headerPacketNumber, leastUnackedPacketNumber)
+
+      strictEqual(stopWaitingFrame.type, 6)
+      ok(leastUnackedPacketNumber.equals(stopWaitingFrame.leastUnacked))
+      let buf = stopWaitingFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
+        0x06,
+        0x00, 0x10
+      ])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), headerPacketNumber).toBuffer()))
+    })
   })
 
   suite('WINDOW_UPDATE Frame', function () {
@@ -925,6 +962,21 @@ suite('QUIC Frame', function () {
       ])))
       ok(buf.equals(WindowUpdateFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
     })
+
+    it('parse with parseFrame', function () {
+      let streamID = StreamID.fromValue(0)
+      let offset = new Offset(bufferFromBytes([0xff, 0xff, 0xff, 0xff]))
+      let windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
+
+      strictEqual(windowUpdateFrame.type, 4)
+      let buf = windowUpdateFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
+        0x04,
+        0x00, 0x00, 0x00, 0x00,
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00
+      ])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
+    })
   })
 
   suite('BLOCKED Frame', function () {
@@ -940,6 +992,19 @@ suite('QUIC Frame', function () {
       ])))
       ok(buf.equals(BlockedFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
     })
+
+    it('parse with parseFrame', function () {
+      let streamID = StreamID.fromValue(0)
+      let blockedFrame = new BlockedFrame(streamID)
+
+      strictEqual(blockedFrame.type, 5)
+      let buf = blockedFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
+        0x05,
+        0x00, 0x00, 0x00, 0x00
+      ])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
+    })
   })
 
   suite('CONGESTION_FEEDBACK Frame', function () {
@@ -950,6 +1015,15 @@ suite('QUIC Frame', function () {
       let buf = congestionFeedbackFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([0b00100000])))
       ok(buf.equals(CongestionFeedbackFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
+    })
+
+    it('parse with parseFrame', function () {
+      let congestionFeedbackFrame = new CongestionFeedbackFrame(0b00100000)
+
+      strictEqual(congestionFeedbackFrame.type, 32)
+      let buf = congestionFeedbackFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([0b00100000])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
     })
 
     it('when invalid CongestionFeedbackFrame type', function () {
@@ -966,6 +1040,15 @@ suite('QUIC Frame', function () {
       let buf = paddingFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([0x00])))
       ok(buf.equals(PaddingFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
+    })
+
+    it('parse with parseFrame', function () {
+      let paddingFrame = new PaddingFrame()
+
+      strictEqual(paddingFrame.type, 0)
+      let buf = paddingFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([0x00])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
     })
   })
 
@@ -987,6 +1070,24 @@ suite('QUIC Frame', function () {
       ])))
       ok(buf.equals(RstStreamFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
     })
+
+    it('parse with parseFrame', function () {
+      let streamID = StreamID.fromValue(1)
+      let error = new QuicError(1)
+      let offset = new Offset(
+        bufferFromBytes([0x01, 0x2, 0x03, 0x04, 0x05, 0x06]))
+      let rstStreamFrame = new RstStreamFrame(streamID, offset, error)
+
+      strictEqual(rstStreamFrame.type, 1)
+      let buf = rstStreamFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
+        0x01,
+        0x01, 0x00, 0x00, 0x00,
+        0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x00, 0x00,
+        0x01, 0x00, 0x00, 0x00
+      ])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
+    })
   })
 
   suite('PING frame', function () {
@@ -997,6 +1098,15 @@ suite('QUIC Frame', function () {
       let buf = pingFrame.toBuffer()
       ok(buf.equals(bufferFromBytes([0x07])))
       ok(buf.equals(PingFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
+    })
+
+    it('parse with parseFrame', function () {
+      let pingFrame = new PingFrame()
+
+      strictEqual(pingFrame.type, 7)
+      let buf = pingFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([0x07])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
     })
   })
 
@@ -1028,6 +1138,21 @@ suite('QUIC Frame', function () {
         'Connection has reached an invalid state.'
       ])))
       ok(buf.equals(ConnectionCloseFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
+    })
+
+    it('parse with parseFrame', function () {
+      let error = new QuicError(1)
+      let connectionCloseFrame = new ConnectionCloseFrame(error)
+
+      strictEqual(connectionCloseFrame.type, 2)
+      let buf = connectionCloseFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
+        0x02,
+        0x01, 0x00, 0x00, 0x00,
+        0x28, 0x00,
+        'Connection has reached an invalid state.'
+      ])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
     })
   })
 
@@ -1063,6 +1188,23 @@ suite('QUIC Frame', function () {
         'Connection has reached an invalid state.'
       ])))
       ok(buf.equals(GoAwayFrame.fromBuffer(Visitor.wrap(buf)).toBuffer()))
+    })
+
+    it('parse with parseFrame', function () {
+      let error = new QuicError(1)
+      let streamID = StreamID.fromValue(7)
+      let goAwayFrame = new GoAwayFrame(streamID, error)
+
+      strictEqual(goAwayFrame.type, 3)
+      let buf = goAwayFrame.toBuffer()
+      ok(buf.equals(bufferFromBytes([
+        0x03,
+        0x01, 0x00, 0x00, 0x00,
+        0x07, 0x00, 0x00, 0x00,
+        0x28, 0x00,
+        'Connection has reached an invalid state.'
+      ])))
+      ok(buf.equals(parseFrame(Visitor.wrap(buf), PacketNumber.fromValue(1)).toBuffer()))
     })
   })
 })
