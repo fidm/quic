@@ -6,22 +6,20 @@
 const { suite, it } = require('tman')
 const { ok, equal, deepEqual } = require('assert')
 
-const { Visitor } = require('../lib/common')
-const { bufferFromBytes } = require('./common')
-
+const { Visitor } = require('../lib/internal/common')
 const {
   getVersion, getVersions, isSupportedVersion,
   PacketNumber, ConnectionID, SocketAddress, QUIC_SERVER, QUIC_CLIENT
-} = require('../lib/protocol')
-
+} = require('../lib/internal/protocol')
 const {
   parsePacket, ResetPacket, NegotiationPacket,
   RegularPacket
-} = require('../lib/packet')
-
+} = require('../lib/internal/packet')
 const {
   PaddingFrame, PingFrame
-} = require('../lib/frame')
+} = require('../lib/internal/frame')
+
+const { bufferFromBytes } = require('./common')
 
 suite('QUIC Packet', function () {
   suite('ResetPacket', function () {

@@ -6,16 +6,18 @@
 
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual, throws } = require('assert')
-const { Visitor } = require('../lib/common')
-const { StreamID, Offset, PacketNumber } = require('../lib/protocol')
-const { QuicError } = require('../lib/error')
-const { bufferFromBytes } = require('./common')
+
+const { Visitor } = require('../lib/internal/common')
+const { QuicError } = require('../lib/internal/error')
+const { StreamID, Offset, PacketNumber } = require('../lib/internal/protocol')
 const {
   parseFrame, StreamFrame, AckFrame, AckRange, PaddingFrame,
   RstStreamFrame, ConnectionCloseFrame, GoAwayFrame,
   WindowUpdateFrame, BlockedFrame, StopWaitingFrame,
   PingFrame, CongestionFeedbackFrame
-} = require('../lib/frame')
+} = require('../lib/internal/frame')
+
+const { bufferFromBytes } = require('./common')
 
 suite('QUIC Frame', function () {
   suite('STREAM Frame', function () {

@@ -6,7 +6,8 @@
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual, throws } = require('assert')
 
-const { ConnectionID, PacketNumber, StreamID, SocketAddress, Offset } = require('../lib/protocol')
+const { ConnectionID, PacketNumber, StreamID, SocketAddress, Offset } = require('../lib/internal/protocol')
+
 const { bufferFromBytes } = require('./common')
 
 suite('QUIC Protocol', function () {

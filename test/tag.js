@@ -7,8 +7,9 @@
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual } = require('assert')
 
-const { Visitor } = require('../lib/common')
-const { QuicTag } = require('../lib/tag')
+const { Visitor } = require('../lib/internal/common')
+const { QuicTag } = require('../lib/internal/tag')
+
 const { bufferFromBytes } = require('./common')
 
 suite('QUIC Tag', function () {

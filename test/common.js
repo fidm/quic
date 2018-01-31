@@ -6,7 +6,7 @@
 const { suite, it } = require('tman')
 const { ok, strictEqual } = require('assert')
 
-const { Visitor, Float16MaxValue, readUFloat16, writeUFloat16 } = require('../lib/common')
+const { Visitor, Float16MaxValue, readUFloat16, writeUFloat16 } = require('../lib/internal/common')
 
 exports.bufferFromBytes = bufferFromBytes
 function bufferFromBytes (array) {

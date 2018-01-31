@@ -8,7 +8,8 @@ const path = require('path')
 const { suite, it } = require('tman')
 const { ok, strictEqual, deepEqual } = require('assert')
 
-const { QuicError } = require('../lib/error')
+const { QuicError } = require('../lib/internal/error')
+
 const { bufferFromBytes } = require('./common')
 
 suite('QUIC errors', function () {
