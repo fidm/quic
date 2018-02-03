@@ -23,10 +23,18 @@ server
       .on('stream', (stream) => {
         ilog.info(`stream: ${stream.id}`)
 
-        stream.on('data', (data) => {
-          ilog.info(data.toString())
-          stream.write(Buffer.from(`ECHO: ${data.toString()}`))
-        })
+        stream
+          .on('data', (data) => {
+            // ilog.info(data.toString())
+            stream.write(data)
+          })
+          .on('end', () => {
+            ilog.info('server end')
+            stream.end()
+          })
+          .on('finish', () => {
+            ilog.info('server finish')
+          })
       })
   })
 
