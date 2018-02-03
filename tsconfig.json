@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es6",
+    "module": "commonjs",
+    "moduleResolution": "node"
+  },
+  "exclude": [
+    "coverage",
+    "debug",
+    "node_modules"
+  ],
+  "compileOnSave": false,
+  "typingOptions": {
+    "enableAutoDiscovery": true
+  }
+}

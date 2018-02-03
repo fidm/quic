@@ -21,6 +21,7 @@
   ],
   "dependencies": {},
   "devDependencies": {
+    "@types/node": "^9.4.0",
     "ilog": "^1.2.1",
     "standard": "^10.0.3",
     "thunks": "^4.9.1",
