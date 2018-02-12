@@ -3,54 +3,55 @@
 //
 // **License:** MIT
 
-const { promisify } = require('util')
+import { promisify } from 'util'
+import { lookup as dnsLookup } from 'dns'
 
-exports.lookup = promisify(require('dns').lookup)
+export const lookup = promisify(dnsLookup)
+
+// BufferVisitor is a buffer wrapped by Visitor
+export interface BufferVisitor extends Buffer {
+  v: Visitor
+}
 
 /** Visitor representing a Buffer visitor. */
-class Visitor {
-  /**
-   * @param {number} start
-   * @param {number} end
-   */
-  constructor (start, end) {
-    this.start = start || 0
+export class Visitor {
+  start: number
+  end: number
+
+  constructor (start: number = 0, end: number = 0) {
+    this.start = start
     this.end = end || this.start
   }
 
-  /**
-   * @param {number} start
-   * @param {number} end
-   * @return {this}
-   */
-  reset (start, end) {
-    this.start = start || 0
-    if (this.end < this.start) this.end = this.start
-    if (end > this.start) this.end = end
+  reset (start: number = 0, end: number = 0): this {
+    this.start = start
+    if (end >= this.start) this.end = end
+    else if (this.end < this.start) this.end = this.start
     return this
   }
 
-  /**
-   * @param {number} steps
-   * @return {this}
-   */
-  walk (steps) {
+  walk (steps: number): this {
     this.start = this.end
     this.end += steps
     return this
   }
 
-  /**
-   * @param {Buffer} buf
-   * @return {Buffer}
-   */
-  static wrap (buf) {
-    buf.v = new Visitor()
-    return buf
+  static wrap (buf: Buffer): BufferVisitor {
+    Object.assign(buf, { v: new Visitor() })
+    return buf as BufferVisitor
   }
 }
 
-exports.Visitor = Visitor
+export interface ToBuffer {
+  byteLen (): number
+  writeTo (bufv: BufferVisitor): BufferVisitor
+}
+
+export function toBuffer(obj: ToBuffer): BufferVisitor {
+  let bufv = obj.writeTo(Visitor.wrap(Buffer.alloc(obj.byteLen())))
+  bufv.v.reset(0, 0)
+  return bufv
+}
 
 // We define an unsigned 16-bit floating point value, inspired by IEEE floats
 // (http://en.wikipedia.org/wiki/Half_precision_floating-point_format),
@@ -64,10 +65,10 @@ const Float16MantissaBits = 16 - Float16ExponentBits             // 11
 const Float16MantissaEffectiveBits = Float16MantissaBits + 1     // 12
 const Float16MantissaEffectiveValue = 1 << Float16MantissaEffectiveBits
 // Float16MaxValue === readUFloat16(<Buffer 0xff 0xff>)
-const Float16MaxValue = 0x3FFC0000000
-exports.Float16MaxValue = Float16MaxValue
-exports.readUFloat16 = function (buf, offset) {
-  let value = buf.readUInt16LE(offset || 0)
+export const Float16MaxValue = 0x3FFC0000000
+
+export function readUFloat16 (buf: Buffer, offset: number = 0): number {
+  let value = buf.readUInt16LE(offset)
   if (value < Float16MantissaEffectiveValue) return value
   let exponent = value >> Float16MantissaBits
   --exponent
@@ -77,7 +78,7 @@ exports.readUFloat16 = function (buf, offset) {
   return res < Float16MaxValue ? res : Float16MaxValue
 }
 
-exports.writeUFloat16 = function (buf, value, offset) {
+export function writeUFloat16 (buf: Buffer, value: number, offset: number): Buffer {
   let res = 0
   if (value < Float16MantissaEffectiveValue) res = value
   else if (value >= Float16MaxValue) res = 0xffff
@@ -95,7 +96,12 @@ exports.writeUFloat16 = function (buf, value, offset) {
   return buf
 }
 
-class Queue {
+export class Queue<T> {
+  private tail: T[]
+  private head: T[]
+  private offset: number
+  private hLength: number
+
   constructor () {
     this.tail = []
     this.head = []
@@ -103,26 +109,26 @@ class Queue {
     this.hLength = 0
   }
 
-  get length () {
+  get length (): number {
     return this.hLength + this.tail.length - this.offset
   }
 
-  first () {
+  first (): T {
     return this.hLength === this.offset ? this.tail[0] : this.head[this.offset]
   }
 
-  push (item) {
+  push (item: T): void {
     this.tail.push(item)
   }
 
-  pop () {
+  pop (): T | undefined {
     if (this.tail.length) return this.tail.pop()
     if (!this.hLength) return
     this.hLength--
     return this.head.pop()
   }
 
-  unshift (item) {
+  unshift (item: T): void {
     if (!this.offset) {
       this.hLength++
       this.head.unshift(item)
@@ -132,7 +138,7 @@ class Queue {
     }
   }
 
-  shift () {
+  shift (): T | undefined {
     if (this.offset === this.hLength) {
       if (!this.tail.length) return
 
@@ -146,14 +152,14 @@ class Queue {
     return this.head[this.offset++]
   }
 
-  reset () {
+  reset (): void {
     this.offset = 0
     this.hLength = 0
     this.tail.length = 0
     this.head.length = 0
   }
 
-  migrateTo (queue) {
+  migrateTo (queue: Queue<T>): Queue<T> {
     let i = this.offset
     let len = this.tail.length
     while (i < this.hLength) queue.push(this.head[i++])
@@ -164,5 +170,3 @@ class Queue {
     return queue
   }
 }
-
-exports.Queue = Queue

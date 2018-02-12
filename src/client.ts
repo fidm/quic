@@ -3,40 +3,42 @@
 //
 // **License:** MIT
 
-const { createSocket } = require('dgram')
+import { createSocket, AddressInfo } from 'dgram'
 
-const { lookup, Visitor } = require('./internal/common')
-const { parsePacket } = require('./internal/packet')
-const { QuicError } = require('./internal/error')
-const {
+import { lookup, Visitor } from './internal/common'
+import { parsePacket, ResetPacket, NegotiationPacket, RegularPacket } from './internal/packet'
+import { QuicError } from './internal/error'
+import {
   ConnectionID,
   MaxReceivePacketSize,
   SocketAddress,
-  QUIC_SERVER,
-  QUIC_CLIENT,
+  SessionType,
   chooseVersion
-} = require('./internal/protocol')
-const {
+} from './internal/protocol'
+import {
   kID,
   kSocket,
   kState,
   kVersion,
   kClientState
-} = require('./internal/symbol')
+} from './internal/symbol'
 
-const { Session } = require('./session')
-const debug = require('util').debuglog('quic')
+import { Session } from './session'
+import { debuglog } from 'util'
+
+const debug = debuglog('quic')
 
 //
 // *************** Client ***************
 //
-class Client extends Session {
+export class Client extends Session {
+  [kClientState]: ClientState
   constructor () {
-    super(ConnectionID.random(), QUIC_CLIENT)
+    super(ConnectionID.random(), SessionType.CLIENT)
     this[kClientState] = new ClientState()
   }
 
-  async connect (port, address) {
+  async connect (port: number, address: string): Promise<any> {
     if (this[kSocket]) throw new Error('Client connecting duplicated')
 
     let addr = await lookup(address || 'localhost')
@@ -45,42 +47,47 @@ class Client extends Session {
     this[kState].remotePort = port
     this[kState].remoteAddress = addr.address
     this[kState].remoteFamily = 'IPv' + addr.family
-    this[kState].remoteAddr = SocketAddress.fromObject({ port: port, address: addr.address, family: `IPv${addr.family}` })
+    this[kState].remoteAddr = new SocketAddress({ port: port, address: addr.address, family: `IPv${addr.family}` })
 
-    this[kSocket] = createSocket(addr.family === 4 ? 'udp4' : 'udp6')
-    this[kSocket]
+    const socket = this[kSocket] = createSocket(addr.family === 4 ? 'udp4' : 'udp6')
+    socket
       .on('error', (err) => this.emit('error', err))
       .on('close', () => clientOnClose(this))
       .on('message', (msg, rinfo) => clientOnMessage(this, msg, rinfo))
 
     let res = new Promise((resolve, reject) => {
-      this[kSocket].once('listening', () => {
-        this[kSocket].removeListener('error', reject)
+      socket.once('listening', () => {
+        socket.removeListener('error', reject)
 
-        let addr = this[kSocket].address()
+        let addr = socket.address()
         this[kState].localFamily = addr.family
         this[kState].localAddress = addr.address
         this[kState].localPort = addr.port
-        this[kState].localAddr = SocketAddress.fromObject(addr)
+        this[kState].localAddr = new SocketAddress(addr)
         resolve()
         this.emit('connect')
       })
-      this[kSocket].once('error', reject)
+      socket.once('error', reject)
     })
-    this[kSocket].bind({ exclusive: true })
+    socket.bind({ exclusive: true, port: 0 })
     return res
   }
 }
 
-class ClientState {
+export class ClientState {
+  versionNegotiated: boolean
+  receivedNegotiationPacket: boolean
   constructor () {
     this.versionNegotiated = false
     this.receivedNegotiationPacket = false
   }
 }
 
-function clientOnMessage (client, msg, rinfo) {
+function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
   debug(`client message: session ${client.id}, ${msg.length} bytes`, rinfo)
+  if (!msg.length) {
+    return
+  }
   // The packet size should not exceed protocol.MaxReceivePacketSize bytes
   // If it does, we only read a truncated packet, which will then end up undecryptable
   if (msg.length > MaxReceivePacketSize) {
@@ -88,13 +95,13 @@ function clientOnMessage (client, msg, rinfo) {
     msg = msg.slice(0, MaxReceivePacketSize)
   }
 
-  let senderAddr = SocketAddress.fromObject(rinfo)
+  let senderAddr = new SocketAddress(rinfo)
   let rcvTime = Date.now()
 
   let bufv = Visitor.wrap(msg)
   let packet = null
   try {
-    packet = parsePacket(bufv, QUIC_SERVER, client[kVersion])
+    packet = parsePacket(bufv, SessionType.SERVER, client[kVersion])
   } catch (err) {
     debug(`session ${client.id}: parsing packet error: ${err.message}`, JSON.stringify(rinfo))
     // drop this packet if we can't parse the Public Header
@@ -109,12 +116,14 @@ function clientOnMessage (client, msg, rinfo) {
   if (packet.isReset()) {
     // check if the remote address and the connection ID match
     // otherwise this might be an attacker trying to inject a PUBLIC_RESET to kill the connection
-    if (!this[kState].remoteAddr.equals(senderAddr)) {
+    let remoteAddr = client[kState].remoteAddr
+    if (!remoteAddr || !remoteAddr.equals(senderAddr)) {
       debug(`received a spoofed Public Reset. Ignoring.`)
       return
     }
 
-    client.closeRemote(new Error(`Received Public Reset, rejected packet number: ${packet.packetNumber}.`))
+    let packetNumber = (packet as ResetPacket).packetNumber
+    client._closeRemote(new Error(`Received Public Reset, rejected packet number: ${packetNumber}.`))
     return
   }
 
@@ -125,7 +134,8 @@ function clientOnMessage (client, msg, rinfo) {
       return
     }
 
-    if (client.version && packet.versions.includes(client.version)) {
+    let versions = (packet as NegotiationPacket).versions
+    if (client.version && versions.includes(client.version)) {
       // the version negotiation packet contains the version that we offered
       // this might be a packet sent by an attacker (or by a terribly broken server implementation)
       // ignore it
@@ -133,14 +143,14 @@ function clientOnMessage (client, msg, rinfo) {
     }
 
     client[kClientState].receivedNegotiationPacket = true
-    let newVersion = chooseVersion(packet.versions)
+    let newVersion = chooseVersion(versions)
     if (!newVersion) {
       client.close(new QuicError('QUIC_INVALID_VERSION'))
     }
 
     // switch to negotiated version
     // let initialVersion = session.version
-    client.version = newVersion
+    client[kVersion] = newVersion
     // do some other...
     return
   }
@@ -152,11 +162,9 @@ function clientOnMessage (client, msg, rinfo) {
     client.emit('version', client.version)
   }
 
-  client._handleRegularPacket(packet, rcvTime, bufv)
+  client._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
 }
 
-function clientOnClose (session) {
+function clientOnClose (_session: Client) {
 
 }
-
-exports.Client = Client

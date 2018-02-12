@@ -6,10 +6,10 @@
 // node example/server.js
 const ilog = require('ilog')
 const {
-  QUICServer
-} = require('..')
+  Server
+} = require('../dist/index')
 
-const server = new QUICServer()
+const server = new Server()
 
 server
   .on('error', ilog.error)

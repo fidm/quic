@@ -1,16 +1,36 @@
 {
+  "compileOnSave": false,
   "compilerOptions": {
-    "target": "es6",
+    "target": "es2018",
     "module": "commonjs",
-    "moduleResolution": "node"
+    "outDir": "./dist",
+    "typeRoots": [
+      "node_modules/@types"
+    ],
+    "lib": [
+      "es2018"
+    ],
+    "sourceMap": true,
+    "declaration": true,
+    "importHelpers": true,
+    "newLine": "LF",
+    "skipLibCheck": true,
+    "noEmitHelpers": true,
+    "noImplicitReturns": false,
+    "strict": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
+  "include": [
+    "src/**/*.ts"
+  ],
   "exclude": [
     "coverage",
     "debug",
-    "node_modules"
-  ],
-  "compileOnSave": false,
-  "typingOptions": {
-    "enableAutoDiscovery": true
-  }
+    "node_modules",
+    "bench",
+    "test",
+    "example"
+  ]
 }

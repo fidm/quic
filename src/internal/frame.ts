@@ -3,9 +3,9 @@
 //
 // **License:** MIT
 
-const { QuicError } = require('./error')
-const { PacketNumber, Offset, StreamID } = require('./protocol')
-const { Visitor, readUFloat16, writeUFloat16 } = require('./common')
+import { QuicError } from './error'
+import { PacketNumber, Offset, StreamID } from './protocol'
+import { BufferVisitor, readUFloat16, writeUFloat16 } from './common'
 
 // Frame Types
 // | Type­field value | Control Frame­type |
@@ -26,36 +26,19 @@ const { Visitor, readUFloat16, writeUFloat16 } = require('./common')
 // | 1fdooossB | STREAM |
 // -----
 
-/**
- * @param {number} type
- * @return {boolean}
- */
-exports.isCongestionType = function (type) {
-  return (type & 0b11100000) === 0b00100000
+export function isCongestionType (flag: number): boolean {
+  return (flag & 0b11100000) === 0b00100000
 }
 
-/**
- * @param {number} type
- * @return {boolean}
- */
-exports.isACKType = function (type) {
-  return (type & 0b11000000) === 0b01000000
+export function isACKType (flag: number): boolean {
+  return (flag & 0b11000000) === 0b01000000
 }
 
-/**
- * @param {number} type
- * @return {boolean}
- */
-exports.isStreamType = function (type) {
-  return type > 0b10000000
+export function isStreamType (flag: number): boolean {
+  return flag > 0b10000000
 }
 
-/**
- * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
- * @param {PacketNumber} headerPacketNumber
- * @return {Frame}
- */
-exports.parseFrame = function (bufv, headerPacketNumber) {
+export function parseFrame (bufv: BufferVisitor, headerPacketNumber: PacketNumber): Frame {
   bufv.v.walk(0) // align start and end
   let type = bufv.readUInt8(bufv.v.start, true)
   if (type >= 128) return StreamFrame.fromBuffer(bufv)
@@ -85,38 +68,25 @@ exports.parseFrame = function (bufv, headerPacketNumber) {
 }
 
 /** Frame representing a QUIC frame. */
-class Frame {
-  /**
-   * @param {number} type
-   * @param {string} name
-   */
-  constructor (type, name) {
+export abstract class Frame {
+  type: number
+  name: string
+  constructor (type: number, name: string) {
     this.type = type
     this.name = name
-    this._len = 0
-    this._buf = null
   }
 
-  /**
-   * @return {number}
-   */
-  get byteLen () {
-    if (this._len > 0) return this._len
-    let buf = this.toBuffer()
-    this._len = buf.length
-    return this._len
-  }
+  abstract byteLen (): number
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    throw new Error(`method "toBuffer" is not implemented`)
+  abstract writeTo (bufv: BufferVisitor): BufferVisitor
+
+  static fromBuffer (_bufv: BufferVisitor, _headerPacketNumber?: PacketNumber): Frame {
+    throw new Error(`class method "fromBuffer" is not implemented`)
   }
 }
 
 /** StreamFrame representing a QUIC STREAM frame. */
-class StreamFrame extends Frame {
+export class StreamFrame extends Frame {
   // STREAM Frame
   //
   // The STREAM frame is used to both implicitly create a stream and to send data on it, and is as follows:
@@ -152,71 +122,56 @@ class StreamFrame extends Frame {
   // * Data length: An optional 16-bit unsigned number specifying the length of the data in this stream frame. The option to omit the length should only be used when the packet is a "full-sized" Packet, to avoid the risk of corruption via padding.
   //
   // A stream frame must always have either non-zero data length or the FIN bit set.
-  /**
-   * @param {StreamID} streamID
-   * @param {Offset} offset
-   * @param {Buffer} data
-   * @param {boolean} isFIN
-   */
-  constructor (streamID, offset, data, isFIN) {
+
+  streamID: StreamID
+  offset: Offset
+  data: Buffer | null
+  isFIN: boolean
+  constructor (streamID: StreamID, offset: Offset, data: Buffer | null = null, isFIN: boolean = false) {
     super(0b10000000, 'STREAM')
 
     this.streamID = streamID
     this.offset = offset
-    this.data = data || null
+    this.data = data
     if (!isFIN && (!Buffer.isBuffer(data) || data.length === 0)) {
       throw new QuicError('QUIC_INVALID_STREAM_DATA')
     }
     this.isFIN = isFIN || this.data == null || this.data.length === 0
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    if (this.isFIN) this.type |= 0b1000000
-    if (this.data != null) this.type |= 0b00100000
-    this.type |= this.offset.flagBits << 2
-    this.type |= this.streamID.flagBits
-
-    let streamLen = this.streamID.byteLen
-    let offsetLen = this.offset.byteLen
+  byteLen (): number {
     let dataLen = this.data ? this.data.length : 0
-    this._buf = Buffer.alloc(1 + streamLen + offsetLen + (dataLen ? (dataLen + 2) : 0))
-    let v = new Visitor(0, 1)
-    this._buf.writeUInt8(this.type)
-    v.walk(streamLen)
-    this.streamID.toBuffer().copy(this._buf, v.start, 0, streamLen)
-    v.walk(offsetLen)
-    this.offset.toBuffer().copy(this._buf, v.start, 0, offsetLen)
-    if (dataLen) {
-      v.walk(2)
-      this._buf.writeUInt16LE(dataLen, v.start, true)
-      v.walk(dataLen)
-      this.data.copy(this._buf, v.start, 0, dataLen)
-    }
-    return this._buf
+    return 1 + this.streamID.byteLen() + this.offset.byteLen() + (dataLen ? (dataLen + 2) : 0)
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {StreamFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    if (this.isFIN) this.type |= 0b1000000
+    if (this.data != null) this.type |= 0b00100000
+    this.type |= this.offset.flagBits() << 2
+    this.type |= this.streamID.flagBits()
+
     bufv.v.walk(1)
-    let pos = bufv.v.start
+    bufv.writeUInt8(this.type, bufv.v.start)
+    this.streamID.writeTo(bufv)
+    this.offset.writeTo(bufv)
+
+    if (this.data) {
+      bufv.v.walk(2)
+      bufv.writeUInt16LE(this.data.length, bufv.v.start, true)
+      bufv.v.walk(this.data.length)
+      this.data.copy(bufv, bufv.v.start, 0, this.data.length)
+    }
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): StreamFrame {
+    bufv.v.walk(1)
     let type = bufv[bufv.v.start]
-    if (!exports.isStreamType(type)) throw new QuicError('QUIC_INVALID_STREAM_DATA')
+    if (!isStreamType(type)) throw new QuicError('QUIC_INVALID_STREAM_DATA')
 
     let isFIN = !!(type & 0b1000000)
-    bufv.v.walk(StreamID.flagToByteLen(type & 0b11))
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_STREAM_DATA')
-    let streamID = new StreamID(bufv.slice(bufv.v.start, bufv.v.end))
-
-    bufv.v.walk(Offset.flagToByteLen((type & 0b11100) >> 2))
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_STREAM_DATA')
-    let offset = new Offset(bufv.slice(bufv.v.start, bufv.v.end))
+    let streamID = StreamID.fromBuffer(bufv, StreamID.flagToByteLen(type & 0b11))
+    let offset = Offset.fromBuffer(bufv, Offset.flagToByteLen((type & 0b11100) >> 2))
 
     let data = null
     if ((type & 0b100000) > 0) {
@@ -229,13 +184,22 @@ class StreamFrame extends Frame {
 
     let frame = new StreamFrame(streamID, offset, data, isFIN)
     frame.type = type
-    frame._len = bufv.v.end - pos
     return frame
   }
 }
 
+/** AckRange representing a range for ACK. */
+export class AckRange {
+  firstNum: number
+  lastNum: number
+  constructor (firstPacketNumberValue: number, lastPacketNumberValue: number) {
+    this.firstNum = firstPacketNumberValue // PacketNumber value
+    this.lastNum = lastPacketNumberValue
+  }
+}
+
 /** AckFrame representing a QUIC ACK frame. */
-class AckFrame extends Frame {
+export class AckFrame extends Frame {
   // ACK Frame
   //
   // Section Offsets
@@ -294,8 +258,11 @@ class AckFrame extends Frame {
   //   - Delta Largest Observed (Repeated): (Same as above.)
   //   - Time Since Previous Timestamp (Repeated): A 16-bit unsigned value specifying delta from the previous timestamp. It is encoded in the same format as the Ack Delay Time.
   //
-  /**
-   */
+  largestAcked: number
+  lowestAcked: number
+  ackRanges: AckRange[]
+  delayTime: number
+  packetReceivedTime: any
   constructor () {
     super(0b01000000, 'ACK')
 
@@ -308,17 +275,11 @@ class AckFrame extends Frame {
     this.packetReceivedTime = null // should be process.hrtime()
   }
 
-  /**
-   * @return {boolean}
-   */
-  hasMissingRanges () {
+  hasMissingRanges (): boolean {
     return this.ackRanges.length > 0
   }
 
-  /**
-   * @return {boolean}
-   */
-  validateAckRanges () {
+  validateAckRanges (): boolean {
     if (this.ackRanges.length === 0) {
       return true
     }
@@ -351,12 +312,7 @@ class AckFrame extends Frame {
     return true
   }
 
-  /**
-   * numWritableNackRanges calculates the number of ACK blocks that are about to be written
-   * this number is different from len(f.AckRanges) for the case of long gaps (> 255 packets)
-   * @return {number}
-   */
-  numWritableNackRanges () {
+  numWritableNackRanges (): number {
     if (this.ackRanges.length === 0) {
       return 0
     }
@@ -375,10 +331,7 @@ class AckFrame extends Frame {
     return numRanges + 1
   }
 
-  /**
-   * @return {number}
-   */
-  getMissingNumberDeltaFlagBits () {
+  getMissingNumberDeltaFlagBits (): number {
     let maxRangeLength = 0
 
     if (this.hasMissingRanges()) {
@@ -398,12 +351,7 @@ class AckFrame extends Frame {
     return 3
   }
 
-  /**
-   * AcksPacket determines if this ACK frame acks a certain packet number
-   * @param {number} val
-   * @return {boolean}
-   */
-  acksPacket (val) {
+  acksPacket (val: number): boolean {
     if (val < this.lowestAcked || val > this.largestAcked) {
       return false
     }
@@ -421,21 +369,11 @@ class AckFrame extends Frame {
     return (val >= this.lowestAcked && val <= this.largestAcked)
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-
+  byteLen (): number {
     let hasMissingRanges = this.hasMissingRanges()
-    if (hasMissingRanges) this.type |= 0b100000
-
-    let largestAckedNum = PacketNumber.fromValue(this.largestAcked)
-    this.type |= largestAckedNum.flagBits << 2
+    let largestAckedNum = new PacketNumber(this.largestAcked)
     let flagBits = this.getMissingNumberDeltaFlagBits()
-    this.type |= flagBits
-
-    let largestAckedLen = largestAckedNum.byteLen
+    let largestAckedLen = largestAckedNum.byteLen()
     let missingNumberDeltaLen = PacketNumber.flagToByteLen(flagBits)
     let frameLen = 1 + largestAckedLen + 2
     let numRanges = 0
@@ -448,25 +386,38 @@ class AckFrame extends Frame {
       frameLen += (missingNumberDeltaLen + 1) * (numRanges - 1)
     }
     // Timestamps
-    frameLen += 1
+    return frameLen + 1
+  }
 
-    this._buf = Buffer.alloc(frameLen)
-    let v = new Visitor(0, 1)
-    this._buf.writeUInt8(this.type)
-    v.walk(largestAckedLen)
-    largestAckedNum.toBuffer().copy(this._buf, v.start, 0, largestAckedLen)
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    let hasMissingRanges = this.hasMissingRanges()
+    if (hasMissingRanges) this.type |= 0b100000
 
-    v.walk(2)
+    let largestAckedNum = new PacketNumber(this.largestAcked)
+    this.type |= largestAckedNum.flagBits() << 2
+    let flagBits = this.getMissingNumberDeltaFlagBits()
+    this.type |= flagBits
+
+    let missingNumberDeltaLen = PacketNumber.flagToByteLen(flagBits)
+    let numRanges = 0
+
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.type, bufv.v.start)
+    largestAckedNum.writeTo(bufv)
+
     if (!this.delayTime && this.packetReceivedTime) {
       let delayTime = process.hrtime(this.packetReceivedTime) // [seconds, nanoseconds]
       this.delayTime = delayTime[0] * 1000 * 1000 + Math.floor(delayTime[1] / 1000) // microsecond
     }
-    writeUFloat16(this._buf, this.delayTime, v.start)
+    bufv.v.walk(2)
+    writeUFloat16(bufv, this.delayTime, bufv.v.start)
 
     let numRangesWritten = 0
     if (hasMissingRanges) {
-      v.walk(1)
-      this._buf.writeUInt8(numRanges - 1, v.start)
+      numRanges = this.numWritableNackRanges()
+      if (numRanges > 0xff) throw new Error('AckFrame: Too many ACK ranges')
+      bufv.v.walk(1)
+      bufv.writeUInt8(numRanges - 1, bufv.v.start)
     }
 
     let firstAckBlockLength = 0
@@ -483,8 +434,8 @@ class AckFrame extends Frame {
       numRangesWritten++
     }
 
-    v.walk(missingNumberDeltaLen)
-    this._buf.writeUIntLE(firstAckBlockLength, v.start, missingNumberDeltaLen)
+    bufv.v.walk(missingNumberDeltaLen)
+    bufv.writeUIntLE(firstAckBlockLength, bufv.v.start, missingNumberDeltaLen)
 
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
       let length = this.ackRanges[i].lastNum - this.ackRanges[i].firstNum + 1
@@ -496,10 +447,10 @@ class AckFrame extends Frame {
       }
 
       if (num === 1) {
-        v.walk(1)
-        this._buf.writeUInt8(gap, v.start)
-        v.walk(missingNumberDeltaLen)
-        this._buf.writeUIntLE(length, v.start, missingNumberDeltaLen)
+        bufv.v.walk(1)
+        bufv.writeUInt8(gap, bufv.v.start)
+        bufv.v.walk(missingNumberDeltaLen)
+        bufv.writeUIntLE(length, bufv.v.start, missingNumberDeltaLen)
         numRangesWritten++
       } else {
         for (let j = 0; j < num; j++) {
@@ -514,10 +465,10 @@ class AckFrame extends Frame {
             gapWritten = 0xff
           }
 
-          v.walk(1)
-          this._buf.writeUInt8(gapWritten, v.start)
-          v.walk(missingNumberDeltaLen)
-          this._buf.writeUIntLE(lengthWritten, v.start, missingNumberDeltaLen)
+          bufv.v.walk(1)
+          bufv.writeUInt8(gapWritten, bufv.v.start)
+          bufv.v.walk(missingNumberDeltaLen)
+          bufv.writeUIntLE(lengthWritten, bufv.v.start, missingNumberDeltaLen)
           numRangesWritten++
         }
       }
@@ -530,29 +481,20 @@ class AckFrame extends Frame {
     if (numRanges !== numRangesWritten) {
       throw new Error('BUG: Inconsistent number of ACK ranges written')
     }
-    v.walk(1)
-    this._buf.writeUInt8(0, v.start) // no timestamps
-    return this._buf
+    bufv.v.walk(1)
+    bufv.writeUInt8(0, bufv.v.start) // no timestamps
+    return bufv
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {AckFrame}
-   */
-  static fromBuffer (bufv) {
+  static fromBuffer (bufv: BufferVisitor): AckFrame {
     bufv.v.walk(1)
-    let pos = bufv.v.start
     let type = bufv[bufv.v.start]
-    if (!exports.isACKType(type)) throw new QuicError('QUIC_INVALID_ACK_DATA')
+    if (!isACKType(type)) throw new QuicError('QUIC_INVALID_ACK_DATA')
 
     let frame = new AckFrame()
     let hasMissingRanges = type & 0b00100000
-    let largestAckedLen = PacketNumber.flagToByteLen((type & 0b1100) >> 2)
     let missingNumberDeltaLen = (2 * (type & 0b11)) || 1
-
-    bufv.v.walk(largestAckedLen)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    frame.largestAcked = new PacketNumber(bufv.slice(bufv.v.start, bufv.v.end)).value
+    frame.largestAcked = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((type & 0b1100) >> 2)).valueOf()
 
     bufv.v.walk(2)
     if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
@@ -654,25 +596,12 @@ class AckFrame extends Frame {
         // buf.readUInt16LE(v.start, true)
       }
     }
-    frame._len = bufv.v.end - pos
     return frame
   }
 }
 
-/** AckRange representing a range for ACK. */
-class AckRange {
-  /**
-   * @param {number} firstPacketNumberValue
-   * @param {number} lastPacketNumberValue
-   */
-  constructor (firstPacketNumberValue, lastPacketNumberValue) {
-    this.firstNum = firstPacketNumberValue // PacketNumber value
-    this.lastNum = lastPacketNumberValue
-  }
-}
-
 /** StopWaitingFrame representing a QUIC STOP_WAITING frame. */
-class StopWaitingFrame extends Frame {
+export class StopWaitingFrame extends Frame {
   // STOP_WAITING Frame
   //
   // --- src
@@ -687,51 +616,42 @@ class StopWaitingFrame extends Frame {
   // * Frame Type: The Frame Type byte is an 8-bit value that must be set to 0x06 indicating that this is a STOP_WAITING frame.
   // * Least Unacked Delta: A variable length packet number delta with the same length as the packet header's packet number.  Subtract it from the header's packet number to determine the least unacked. The resulting least unacked is the smallest packet number of any packet for which the sender is still awaiting an ack. If the receiver is missing any packets smaller than this value, the receiver should consider those packets to be irrecoverably lost.
   //
-  /**
-   * packetNumber > leastUnacked
-   * @param {PacketNumber} packetNumber
-   * @param {PacketNumber} leastUnacked
-   */
-  constructor (packetNumber, leastUnacked) {
+  packetNumber: PacketNumber
+  leastUnacked: PacketNumber
+  constructor (packetNumber: PacketNumber, leastUnacked: PacketNumber) {
     super(0x06, 'STOP_WAITING')
     this.packetNumber = packetNumber // packetNumber > leastUnacked
     this.leastUnacked = leastUnacked
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    let len = this.packetNumber.byteLen
-    this._buf = Buffer.alloc(1 + len)
-    this._buf.writeUInt8(this.type)
-    this._buf.writeUIntLE(this.packetNumber.value - this.leastUnacked.value, 1, len)
-    return this._buf
+  byteLen (): number {
+    return 1 + this.packetNumber.byteLen()
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {StopWaitingFrame}
-   */
-  static fromBuffer (bufv, packetNumber) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    let len = this.packetNumber.byteLen()
     bufv.v.walk(1)
-    let pos = bufv.v.start
+    bufv.writeUInt8(this.type, bufv.v.start)
+    bufv.v.walk(len)
+    bufv.writeUIntLE(this.packetNumber.valueOf() - this.leastUnacked.valueOf(), bufv.v.start, len)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor, packetNumber: PacketNumber): StopWaitingFrame {
+    bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type !== 0x06) throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
 
-    let len = packetNumber.byteLen
+    let len = packetNumber.byteLen()
     bufv.v.walk(len)
     if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
     let delta = bufv.readIntLE(bufv.v.start, len, false)
-    let frame = new StopWaitingFrame(packetNumber, PacketNumber.fromValue(packetNumber.value - delta))
-    frame._len = bufv.v.end - pos
-    return frame
+    return new StopWaitingFrame(packetNumber, new PacketNumber(packetNumber.valueOf() - delta))
   }
 }
 
 /** WindowUpdateFrame representing a QUIC WINDOW_UPDATE frame. */
-class WindowUpdateFrame extends Frame {
+export class WindowUpdateFrame extends Frame {
   // WINDOW_UPDATE Frame
   //
   // --- src
@@ -745,51 +665,39 @@ class WindowUpdateFrame extends Frame {
   // * Stream ID: ID of the stream whose flow control windows is being updated, or 0 to specify the connection-level flow control window.
   // * Byte offset: A 64-bit unsigned integer indicating the absolute byte offset of data which can be sent on the given stream. In the case of connection level flow control, the cumulative number of bytes which can be sent on all currently open streams.
   //
-  /**
-   * packetNumber > leastUnacked
-   * @param {StreamID} streamID
-   * @param {Offset} offset
-   */
-  constructor (streamID, offset) {
+  streamID: StreamID
+  offset: Offset
+  constructor (streamID: StreamID, offset: Offset) {
     super(0x04, 'WINDOW_UPDATE')
     this.streamID = streamID
     this.offset = offset
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    this._buf = Buffer.alloc(13)
-    this._buf.writeUInt8(this.type)
-    this.streamID.toBuffer().copy(this._buf, 1, 0, 4)
-    this.offset.toFullBuffer().copy(this._buf, 5, 0, 8)
-    return this._buf
+  byteLen (): number {
+    return 13
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {WindowUpdateFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.type, bufv.v.start)
+    this.streamID.writeTo(bufv, true)
+    this.offset.writeTo(bufv, true)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): WindowUpdateFrame {
     bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type !== 0x04) throw new QuicError('QUIC_INVALID_WINDOW_UPDATE_DATA')
-    if (bufv.length < (bufv.v.end + 12)) throw new QuicError('QUIC_INVALID_WINDOW_UPDATE_DATA')
 
-    bufv.v.walk(4)
-    let streamID = new StreamID(bufv.slice(bufv.v.start, bufv.v.end))
-    bufv.v.walk(8)
-    let offset = new Offset(bufv.slice(bufv.v.start, bufv.v.end))
-    let frame = new WindowUpdateFrame(streamID, offset)
-    frame._len = 13
-    return frame
+    let streamID = StreamID.fromBuffer(bufv, 4)
+    let offset = Offset.fromBuffer(bufv, 8)
+    return new WindowUpdateFrame(streamID, offset)
   }
 }
 
 /** BlockedFrame representing a QUIC BLOCKED frame. */
-class BlockedFrame extends Frame {
+export class BlockedFrame extends Frame {
   // BLOCKED Frame
   //
   // --- src
@@ -803,118 +711,92 @@ class BlockedFrame extends Frame {
   // * Frame Type: The Frame Type byte is an 8-bit value that must be set to 0x05 indicating that this is a BLOCKED frame.
   // * Stream ID: A 32-bit unsigned number indicating the stream which is flow control blocked. A non-zero Stream ID field specifies the stream that is flow control blocked. When zero, the Stream ID field indicates that the connection is flow control blocked at the connection level.
   //
-  /**
-   * packetNumber > leastUnacked
-   * @param {StreamID} streamID
-   */
-  constructor (streamID) {
+  streamID: StreamID
+  constructor (streamID: StreamID) {
     super(0x05, 'BLOCKED')
     this.streamID = streamID
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    this._buf = Buffer.alloc(5)
-    this._buf.writeUInt8(this.type)
-    this.streamID.toBuffer().copy(this._buf, 1, 0, 4)
-    return this._buf
+  byteLen (): number {
+    return 5
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {BlockedFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.type, bufv.v.start)
+    this.streamID.writeTo(bufv, true)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): BlockedFrame {
     bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type !== 0x05) throw new QuicError('QUIC_INVALID_BLOCKED_DATA')
-    if (bufv.length < (bufv.v.end + 4)) throw new QuicError('QUIC_INVALID_BLOCKED_DATA')
-    bufv.v.walk(4)
-    let streamID = new StreamID(bufv.slice(bufv.v.start, bufv.v.end))
-    let frame = new BlockedFrame(streamID)
-    frame._len = 5
-    return frame
+    let streamID = StreamID.fromBuffer(bufv, 4)
+    return new BlockedFrame(streamID)
   }
 }
 
 /** CongestionFeedbackFrame representing a QUIC CONGESTION_FEEDBACK frame. */
-class CongestionFeedbackFrame extends Frame {
+export class CongestionFeedbackFrame extends Frame {
   // CONGESTION_FEEDBACK Frame
   // The CONGESTION_FEEDBACK frame is an experimental frame currently not used.
   // It is intended to provide extra congestion feedback information outside the scope of
   // the standard ack frame. A CONGESTION_FEEDBACK frame must have the first three bits of
   // the Frame Type set to 001. The last 5 bits of the Frame Type field are reserved for future use.
-  /**
-   */
   constructor () {
     super(0b00100000, 'CONGESTION_FEEDBACK')
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    this._buf = Buffer.alloc(1)
-    this._buf.writeUInt8(this.type)
-    return this._buf
+  byteLen (): number {
+    return 1
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {CongestionFeedbackFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.type, bufv.v.start)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): CongestionFeedbackFrame {
     bufv.v.walk(1)
     let type = bufv[bufv.v.start]
-    if (!exports.isCongestionType(type)) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    let frame = new CongestionFeedbackFrame()
-    frame._len = 1
-    return frame
+    if (!isCongestionType(type)) throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    return new CongestionFeedbackFrame()
   }
 }
 
 /** PaddingFrame representing a QUIC PADDING frame. */
-class PaddingFrame extends Frame {
+export class PaddingFrame extends Frame {
   // PADDING Frame
   // The PADDING frame pads a packet with 0x00 bytes. When this frame is encountered,
   // the rest of the packet is expected to be padding bytes. The frame contains 0x00 bytes
   // and extends to the end of the QUIC packet. A PADDING frame only has a Frame Type field,
   // and must have the 8-bit Frame Type field set to 0x00.
-  /**
-   */
   constructor () {
     super(0x00, 'PADDING')
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    this._buf = Buffer.alloc(1)
-    return this._buf
+  byteLen (): number {
+    return 1
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {PaddingFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(0, bufv.v.start)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): PaddingFrame {
     bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    let frame = new PaddingFrame()
-    frame._len = 1
-    return frame
+    return new PaddingFrame()
   }
 }
 
 /** RstStreamFrame representing a QUIC RST_STREAM frame. */
-class RstStreamFrame extends Frame {
+export class RstStreamFrame extends Frame {
   // RST_STREAM Frame
   //
   // --- src
@@ -930,53 +812,42 @@ class RstStreamFrame extends Frame {
   // * Byte offset: A 64-bit unsigned integer indicating the absolute byte offset of the end of data for this stream.
   // * Error code: A 32-bit QuicErrorCode which indicates why the stream is being closed. QuicErrorCodes are listed later in this document.
   //
-  /**
-   * @param {StreamID} streamID
-   * @param {Offset} offset
-   * @param {QuicError} error
-   */
-  constructor (streamID, offset, error) {
+  streamID: StreamID
+  offset: Offset
+  error: QuicError
+  constructor (streamID: StreamID, offset: Offset, error: QuicError) {
     super(0x01, 'RST_STREAM')
     this.streamID = streamID
     this.offset = offset
     this.error = error
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    this._buf = Buffer.alloc(17)
-    this._buf.writeUInt8(this.type)
-    this.streamID.toBuffer().copy(this._buf, 1, 0, 4)
-    this.offset.toFullBuffer().copy(this._buf, 5, 0, 8)
-    this.error.toBuffer().copy(this._buf, 13, 0, 4)
-    return this._buf
+  byteLen (): number {
+    return 17
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {RstStreamFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.type, bufv.v.start)
+    this.streamID.writeTo(bufv, true)
+    this.offset.writeTo(bufv, true)
+    this.error.writeTo(bufv)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): RstStreamFrame {
     bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type !== 0x01 || bufv.length < (bufv.v.end + 16)) throw new QuicError('QUIC_INVALID_RST_STREAM_DATA')
-    bufv.v.walk(4)
-    let streamID = new StreamID(bufv.slice(bufv.v.start, bufv.v.end))
-    bufv.v.walk(8)
-    let offset = new Offset(bufv.slice(bufv.v.start, bufv.v.end))
-    bufv.v.walk(4)
-    let error = new QuicError(bufv.readUInt32LE(bufv.v.start))
-    let frame = new RstStreamFrame(streamID, offset, error)
-    frame._len = 17
-    return frame
+    let streamID = StreamID.fromBuffer(bufv, 4)
+    let offset = Offset.fromBuffer(bufv, 8)
+    let error = QuicError.fromBuffer(bufv)
+    return new RstStreamFrame(streamID, offset, error)
   }
 }
 
 /** PingFrame representing a QUIC PING frame. */
-class PingFrame extends Frame {
+export class PingFrame extends Frame {
   // PING frame
   // The PING frame can be used by an endpoint to verify that
   // a peer is still alive. The PING frame contains no payload.
@@ -985,38 +856,30 @@ class PingFrame extends Frame {
   // The default is to do this after 15 seconds of quiescence,
   // which is much shorter than most NATs time out. A PING frame only
   // has a Frame Type field, and must have the 8-bit Frame Type field set to 0x07.
-  /**
-   */
   constructor () {
     super(0x07, 'PING')
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
-    this._buf = Buffer.alloc(1)
-    this._buf.writeUInt8(this.type)
-    return this._buf
+  byteLen (): number {
+    return 1
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {PingFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.type, bufv.v.start)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): PingFrame {
     bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type !== 0x07) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    let frame = new PingFrame()
-    frame._len = 1
-    return frame
+    return new PingFrame()
   }
 }
 
 /** ConnectionCloseFrame representing a QUIC CONNECTION_CLOSE frame. */
-class ConnectionCloseFrame extends Frame {
+export class ConnectionCloseFrame extends Frame {
   // CONNECTION_CLOSE frame
   //
   // --- src
@@ -1033,40 +896,38 @@ class ConnectionCloseFrame extends Frame {
   // * Reason Phrase Length: A 16-bit unsigned number specifying the length of the reason phrase. This may be zero if the sender chooses to not give details beyond the QuicErrorCode.
   // * Reason Phrase: An optional human-readable explanation for why the connection was closed.
   //
-  /**
-   * @param {QuicError} error
-   */
-  constructor (error) {
+  error: QuicError
+  constructor (error: QuicError) {
     super(0x02, 'CONNECTION_CLOSE')
     this.error = error
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
+  byteLen (): number {
     let reasonPhrase = this.error.message
     let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
-    this._buf = Buffer.alloc(7 + reasonPhraseLen)
-    this._buf.writeUInt8(this.type)
-    this.error.toBuffer().copy(this._buf, 1, 0, 4)
-    this._buf.writeUInt16LE(reasonPhraseLen, 5, true)
-    if (reasonPhrase) this._buf.write(reasonPhrase, 7, reasonPhraseLen)
-    return this._buf
+    return 7 + reasonPhraseLen
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {ConnectionCloseFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    let reasonPhrase = this.error.message
+    let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
     bufv.v.walk(1)
-    let pos = bufv.v.start
+    bufv.writeUInt8(this.type, bufv.v.start)
+    this.error.writeTo(bufv)
+    bufv.v.walk(2)
+    bufv.writeUInt16LE(reasonPhraseLen, bufv.v.start, true)
+    if (reasonPhrase) {
+      bufv.v.walk(reasonPhraseLen)
+      bufv.write(reasonPhrase, bufv.v.start, reasonPhraseLen)
+    }
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): ConnectionCloseFrame {
+    bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type !== 0x02 || bufv.length < (bufv.v.end + 6)) throw new QuicError('QUIC_INVALID_CONNECTION_CLOSE_DATA')
-    bufv.v.walk(4)
-    let error = new QuicError(bufv.readUInt32LE(bufv.v.start))
+    let error = QuicError.fromBuffer(bufv)
     bufv.v.walk(2)
     let reasonPhraseLen = bufv.readUInt16LE(bufv.v.start, true)
     if (reasonPhraseLen) {
@@ -1074,14 +935,12 @@ class ConnectionCloseFrame extends Frame {
       if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_CONNECTION_CLOSE_DATA')
       error.message = bufv.toString('utf8', bufv.v.start, bufv.v.end)
     }
-    let frame = new ConnectionCloseFrame(error)
-    frame._len = bufv.v.end - pos
-    return frame
+    return new ConnectionCloseFrame(error)
   }
 }
 
 /** GoAwayFrame representing a QUIC GOAWAY frame. */
-class GoAwayFrame extends Frame {
+export class GoAwayFrame extends Frame {
   // GOAWAY Frame
   //
   // --- src
@@ -1104,47 +963,44 @@ class GoAwayFrame extends Frame {
   // * Reason Phrase Length: A 16-bit unsigned number specifying the length of the reason phrase. This may be zero if the sender chooses to not give details beyond the error code.
   // * Reason Phrase: An optional human-readable explanation for why the connection was closed.
   //
-  /**
-   * @param {StreamID} lastGoodStreamID
-   * @param {QuicError} error
-   */
-  constructor (lastGoodStreamID, error) {
+  streamID: StreamID
+  error: QuicError
+  constructor (lastGoodStreamID: StreamID, error: QuicError) {
     super(0x03, 'GOAWAY')
     this.streamID = lastGoodStreamID
     this.error = error
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    if (this._buf) return this._buf
+  byteLen (): number {
     let reasonPhrase = this.error.message
     let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
-    this._buf = Buffer.alloc(11 + reasonPhraseLen)
-    this._buf.writeUInt8(this.type)
-    this.error.toBuffer().copy(this._buf, 1, 0, 4)
-    this.streamID.toBuffer().copy(this._buf, 5, 0, 4)
-    this._buf.writeUInt16LE(reasonPhraseLen, 9, true)
-    if (reasonPhrase) this._buf.write(reasonPhrase, 11)
-    return this._buf
+    return 11 + reasonPhraseLen
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {GoAwayFrame}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    let reasonPhrase = this.error.message
+    let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
+
     bufv.v.walk(1)
-    let pos = bufv.v.start
+    bufv.writeUInt8(this.type, bufv.v.start)
+    this.error.writeTo(bufv)
+    this.streamID.writeTo(bufv, true)
+    bufv.v.walk(2)
+    bufv.writeUInt16LE(reasonPhraseLen, bufv.v.start, true)
+    if (reasonPhrase) {
+      bufv.v.walk(reasonPhraseLen)
+      bufv.write(reasonPhrase, bufv.v.start, reasonPhraseLen)
+    }
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): GoAwayFrame {
+    bufv.v.walk(1)
     let type = bufv[bufv.v.start]
     if (type !== 0x03) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-    bufv.v.walk(4)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-    let error = new QuicError(bufv.readUInt32LE(bufv.v.start))
-    bufv.v.walk(4)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-    let streamID = new StreamID(bufv.slice(bufv.v.start, bufv.v.end))
+
+    let error = QuicError.fromBuffer(bufv)
+    let streamID = StreamID.fromBuffer(bufv, 4)
     bufv.v.walk(2)
     if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
     let reasonPhraseLen = bufv.readUInt16LE(bufv.v.start, true)
@@ -1153,22 +1009,6 @@ class GoAwayFrame extends Frame {
       if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
       error.message = bufv.toString('utf8', bufv.v.start, bufv.v.end)
     }
-    let frame = new GoAwayFrame(streamID, error)
-    frame._len = bufv.v.end - pos
-    return frame
+    return new GoAwayFrame(streamID, error)
   }
 }
-
-exports.Frame = Frame
-exports.StreamFrame = StreamFrame
-exports.AckFrame = AckFrame
-exports.StopWaitingFrame = StopWaitingFrame
-exports.WindowUpdateFrame = WindowUpdateFrame
-exports.BlockedFrame = BlockedFrame
-exports.CongestionFeedbackFrame = CongestionFeedbackFrame
-exports.PaddingFrame = PaddingFrame
-exports.RstStreamFrame = RstStreamFrame
-exports.PingFrame = PingFrame
-exports.ConnectionCloseFrame = ConnectionCloseFrame
-exports.GoAwayFrame = GoAwayFrame
-exports.AckRange = AckRange

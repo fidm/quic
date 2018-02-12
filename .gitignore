@@ -28,4 +28,5 @@ node_modules
 .lock-wscript
 
 debug
+dist
 .DS_Store

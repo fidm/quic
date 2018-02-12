@@ -3,13 +3,12 @@
 //
 // **License:** MIT
 
-const { suite, it } = require('tman')
-const { ok, strictEqual } = require('assert')
+import { suite, it } from 'tman'
+import { ok, strictEqual } from 'assert'
 
-const { Visitor, Float16MaxValue, readUFloat16, writeUFloat16 } = require('../lib/internal/common')
+import { Visitor, BufferVisitor, Float16MaxValue, readUFloat16, writeUFloat16 } from '../src/internal/common'
 
-exports.bufferFromBytes = bufferFromBytes
-function bufferFromBytes (array) {
+export function bufferFromBytes (array: any): BufferVisitor {
   let bytes = []
   if (!Array.isArray(array)) array = [array]
   for (let val of array) {
@@ -18,7 +17,7 @@ function bufferFromBytes (array) {
       for (let byte of Buffer.from(val, 'utf8').values()) bytes.push(byte)
     }
   }
-  return Buffer.from(bytes)
+  return Visitor.wrap(Buffer.from(bytes))
 }
 
 suite('common', function () {
@@ -40,6 +39,18 @@ suite('common', function () {
     v.walk(100)
     strictEqual(v.start, 10)
     strictEqual(v.end, 110)
+    v.reset(10)
+    strictEqual(v.start, 10)
+    strictEqual(v.end, 110)
+    v.reset(20, 20)
+    strictEqual(v.start, 20)
+    strictEqual(v.end, 20)
+    v.reset(0, 200)
+    strictEqual(v.start, 0)
+    strictEqual(v.end, 200)
+    v.reset(0, 0)
+    strictEqual(v.start, 0)
+    strictEqual(v.end, 0)
   })
 
   suite('UFloat16', function () {

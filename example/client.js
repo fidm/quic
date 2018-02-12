@@ -7,10 +7,10 @@ const ilog = require('ilog')
 const thunk = require('thunks').thunk
 
 const {
-  QUICClient
-} = require('..')
+  Client
+} = require('../dist/index')
 
-const cli = new QUICClient()
+const cli = new Client()
 cli.on('error', ilog.error)
 
 thunk(function * () {

@@ -3,19 +3,22 @@
 //
 // **License:** MIT
 
-const { Duplex } = require('stream')
-const {
+import { Duplex } from 'stream'
+import {
   Offset,
+  StreamID,
   MaxStreamBufferSize
-} = require('./internal/protocol')
-const { StreamFrame } = require('./internal/frame')
-const {
+} from './internal/protocol'
+import { StreamFrame } from './internal/frame'
+import {
   kID,
   kSession,
   kState
-} = require('./internal/symbol')
+} from './internal/symbol'
 
-class QUICStream extends Duplex {
+import { Session } from './session'
+
+export class Stream extends Duplex {
   // Event: 'close'
   // Event: 'connect'
   // Event: 'data'
@@ -27,14 +30,10 @@ class QUICStream extends Duplex {
   // Event: 'finish'
   // Event: 'frameError'
 
-  /**
-   * Returns a QUIC stream.
-   *
-   * @param {StreamID} streamID
-   * @param {Session} session
-   * @param {Object} options
-   */
-  constructor (streamID, session, options) {
+  private [kID]: StreamID
+  private [kSession]: Session
+  private [kState]: StreamState
+  constructor (streamID: StreamID, session: Session, options: any) {
     options.allowHalfOpen = true
     options.decodeStrings = false
     options.objectMode = false
@@ -47,30 +46,31 @@ class QUICStream extends Duplex {
   }
 
   // The socket owned by this session
-  get id () {
-    return this[kID].value
+  get id (): number {
+    return this[kID].valueOf()
   }
 
-  get session () {
+  get session (): Session {
     return this[kSession]
   }
 
-  get aborted () {
+  get aborted (): boolean {
     return this[kState].aborted
   }
 
-  get closed () {}
+  // get closed (): boolean {
+  // }
 
-  get destroyed () {}
+  // get destroyed (): boolean {}
 
-  close (code) {}
+  close (_code: any): void {}
 
   // Reset closes the stream with an error.
-  reset (_err) {}
+  reset (_err: any): void {}
 
-  _handleFrame (frame) {
+  _handleFrame (frame: StreamFrame): void {
     if (frame.data != null) {
-      this.bytesRead += frame.data.length
+      this[kState].bytesRead += frame.data.length
       this[kState].readQueue.push(frame)
       this._read(MaxStreamBufferSize * 10) // try to read all
     }
@@ -81,7 +81,7 @@ class QUICStream extends Duplex {
     }
   }
 
-  _flushData (shouldFin, callback) {
+  _flushData (shouldFin: boolean, callback: (...args: any[]) => void): void {
     let buf = this[kState].bufferList.read(MaxStreamBufferSize)
     if (buf == null && !shouldFin) return callback()
 
@@ -90,34 +90,41 @@ class QUICStream extends Duplex {
       this[kState].writeOffset = offet.nextOffset(buf.length)
     }
     let streamFrame = new StreamFrame(this[kID], offet, buf, (shouldFin && this[kState].bufferList.length === 0))
-    this[kSession]._sendFrame(streamFrame, (err) => {
+    this[kSession]._sendFrame(streamFrame, (err: any) => {
       if (err != null) return callback(err)
       if (this[kState].bufferList.length === 0) return callback()
       this._flushData(shouldFin, callback)
     })
   }
 
-  _write (chunk, encoding, callback) {
+  _write (chunk: Buffer, _encoding: string, callback: (...args: any[]) => void): void {
     if (!(chunk instanceof Buffer)) return callback(new Error('invalid data'))
     this[kState].bufferList.push(chunk)
     this._flushData(false, callback)
   }
 
-  _final (callback) {
+  _final (callback: (...args: any[]) => void): void {
     this._flushData(true, callback)
   }
 
-  _read (size) {
+  _read (size: number = 0) {
     let data = this[kState].readQueue.read()
     if (data != null) {
-      if (this.push(data) && data.length < size) {
+      if (this.push(data) && size > data.length) {
         this._read(size - data.length)
       }
     }
   }
 }
 
-class StreamState {
+export class StreamState {
+  aborted: boolean
+  finished: boolean
+  bytesRead: number
+  bytesWritten: number
+  readQueue: StreamFramesSorter
+  bufferList: StreamDataList
+  writeOffset: Offset
   constructor () {
     this.aborted = false
     this.finished = false
@@ -125,24 +132,33 @@ class StreamState {
     this.bytesWritten = 0
     this.readQueue = new StreamFramesSorter()
     this.bufferList = new StreamDataList()
-    this.writeOffset = Offset.fromValue(0)
+    this.writeOffset = new Offset(0)
+  }
+}
+
+class StreamDataEntry {
+  data: Buffer
+  next: StreamDataEntry | null
+  constructor (buf: Buffer, entry: StreamDataEntry | null) {
+    this.data = buf
+    this.next = entry
   }
 }
 
 class StreamDataList {
+  head: StreamDataEntry | null
+  tail: StreamDataEntry | null
+  length: number
   constructor () {
     this.head = null
     this.tail = null
     this.length = 0
   }
 
-  /**
-   * @param {Buffer}
-   */
-  push (buf) {
+  push (buf: Buffer): void {
     let entry = new StreamDataEntry(buf, null)
 
-    if (this.length > 0) {
+    if (this.tail) {
       this.tail.next = entry
     } else {
       this.head = entry
@@ -152,7 +168,7 @@ class StreamDataList {
   }
 
   shift () {
-    if (this.length === 0) return null
+    if (!this.head) return null
     let ret = this.head.data
     if (this.length === 1) {
       this.head = this.tail = null
@@ -163,11 +179,8 @@ class StreamDataList {
     return ret
   }
 
-  /**
-   * @return {?Buffer}
-   */
-  read (n) {
-    if (this.length === 0) return null
+  read (n: number): Buffer | null {
+    if (!this.head) return null
 
     let ret = this.head.data
     if (ret.length > n) {
@@ -180,18 +193,20 @@ class StreamDataList {
   }
 }
 
-class StreamDataEntry {
-  /**
-   * @param {Buffer} buf
-   * @param {?StreamDataEntry} entry
-   */
-  constructor (buf, entry) {
-    this.data = buf
+class StreamFrameEntry {
+  data: Buffer | null
+  offset: number
+  next: StreamFrameEntry | null
+  constructor (frame: StreamFrame, entry: StreamFrameEntry | null) {
+    this.data = frame.data
+    this.offset = frame.offset.valueOf()
     this.next = entry
   }
 }
 
 class StreamFramesSorter {
+  head: StreamFrameEntry | null
+  readOffset: number
   constructor () {
     this.head = null
     this.readOffset = 0
@@ -200,7 +215,7 @@ class StreamFramesSorter {
   /**
    * @param {StreamFrame}
    */
-  push (frame) {
+  push (frame: StreamFrame) {
     let entry = new StreamFrameEntry(frame, null)
     let offset = entry.offset
 
@@ -226,30 +241,13 @@ class StreamFramesSorter {
     }
   }
 
-  /**
-   * @return {?Buffer}
-   */
-  read () {
+  read (): Buffer | null {
     let data = null
     if (this.head != null && this.readOffset >= this.head.offset) {
       data = this.head.data
-      this.readOffset = this.head.offset + data.length
+      this.readOffset = this.head.offset + (data ? data.length : 0)
       this.head = this.head.next
     }
     return data
   }
 }
-
-class StreamFrameEntry {
-  /**
-   * @param {StreamFrame} buf
-   * @param {?StreamFrameEntry} entry
-   */
-  constructor (frame, entry) {
-    this.data = frame.data
-    this.offset = frame.offset.value
-    this.next = entry
-  }
-}
-
-exports.QUICStream = QUICStream

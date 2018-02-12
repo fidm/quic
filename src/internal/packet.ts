@@ -3,19 +3,19 @@
 //
 // **License:** MIT
 
-const { QuicTag } = require('./tag')
-const { QuicError } = require('./error')
-const { Visitor } = require('./common')
-const { parseFrame } = require('./frame')
+import { QuicError } from './error'
+import { Visitor, BufferVisitor } from './common'
+import { parseFrame, Frame } from './frame'
 
-const {
+import {
   getVersions,
   isSupportedVersion,
   ConnectionID,
   PacketNumber,
   SocketAddress,
-  QUIC_SERVER
-} = require('./protocol')
+  QuicTag,
+  SessionType
+} from './protocol'
 
 // --- QUIC Public Packet Header
 //
@@ -77,12 +77,7 @@ const {
 // 0x40 is reserved for multipath use.
 // 0x80 is currently unused, and must be set to 0.
 
-/**
- * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
- * @param {QUIC_SERVER | QUIC_CLIENT} packetSentBy - QUIC_SERVER or QUIC_CLIENT
- * @return {RegularPacket}
- */
-exports.parsePacket = function (bufv, packetSentBy, _version) {
+export function parsePacket (bufv: BufferVisitor, packetSentBy: SessionType, _version?: string): Packet {
   bufv.v.walk(0) // align start and end
   let flag = bufv.readUIntLE(bufv.v.start, 1, true)
 
@@ -93,53 +88,45 @@ exports.parsePacket = function (bufv, packetSentBy, _version) {
   if (!(flag & 0b1000)) throw new QuicError('QUIC_INTERNAL_ERROR')
 
   if (flag & 0b10) { // Reset Packet
-    // if (packetSentBy === QUIC_CLIENT) throw new QuicError('QUIC_INTERNAL_ERROR')
     return ResetPacket.fromBuffer(bufv)
   }
 
   let hasVersion = flag & 0b1
-  if (hasVersion && packetSentBy === QUIC_SERVER) { // Negotiation Packet
+  if (hasVersion && packetSentBy === SessionType.SERVER) { // Negotiation Packet
     return NegotiationPacket.fromBuffer(bufv)
   }
 
   return RegularPacket.fromBuffer(bufv, flag)
 }
 
-/** BasePacket representing a base Packet. */
-class BasePacket {
-  /**
-   * @param {ConnectionID} connectionID
-   * @param {number} flag
-   */
-  constructor (connectionID, flag) {
+/** Packet representing a base Packet. */
+export abstract class Packet {
+  flag: number
+  connectionID: ConnectionID
+  constructor (connectionID: ConnectionID, flag: number) {
     this.flag = flag
     this.connectionID = connectionID
   }
 
-  /**
-   * @return {boolean}
-   */
-  isReset () {
+  isReset (): boolean {
     return this.flag === 0b00001010
   }
 
-  /**
-   * @return {boolean}
-   */
-  isNegotiation () {
+  isNegotiation (): boolean {
     return this.flag === 0b00001001
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    throw new Error('method "toBuffer" is not implemented')
+  abstract byteLen (): number
+
+  abstract writeTo (bufv: BufferVisitor): BufferVisitor
+
+  static fromBuffer (_bufv: BufferVisitor, _flag?: number): Packet {
+    throw new Error(`class method "fromBuffer" is not implemented`)
   }
 }
 
 /** ResetPacket representing a reset Packet. */
-class ResetPacket extends BasePacket {
+export class ResetPacket extends Packet {
   // --- Public Reset Packet
   //      0        1        2        3        4         8
   // +--------+--------+--------+--------+--------+--   --+
@@ -152,56 +139,57 @@ class ResetPacket extends BasePacket {
   // |      Quic Tag (32)                |  Tag value map      ... ->
   // |         (PRST)                    |  (variable length)
   // +--------+--------+--------+--------+--------+--------+---
-  /**
-   * @param {ConnectionID} connectionID
-   * @param {Buffer} nonceProof
-   * @param {?PacketNumber} packetNumber
-   * @param {?SocketAddress} socketAddress
-   */
-  constructor (connectionID, nonceProof, packetNumber, socketAddress) {
+
+  nonceProof: Buffer
+  packetNumber: PacketNumber | null
+  socketAddress: SocketAddress | null
+  tags: QuicTag
+  constructor (connectionID: ConnectionID, tags: QuicTag) {
     super(connectionID, 0b00001010)
+
+    this.tags = tags
+    this.packetNumber = null
+    this.socketAddress = null
+
+    let nonceProof = tags.getTag('RNON')
+    if (!nonceProof) throw new QuicError('QUIC_INVALID_PUBLIC_RST_PACKET')
     this.nonceProof = nonceProof
-    this.packetNumber = packetNumber || null
-    this.socketAddress = socketAddress || null
+    let rseq = tags.getTag('RSEQ')
+    if (rseq) {
+      this.packetNumber = PacketNumber.fromBuffer(Visitor.wrap(rseq), rseq.length)
+    }
+    let cadr = tags.getTag('CADR')
+    if (cadr) {
+      this.socketAddress = SocketAddress.fromBuffer(Visitor.wrap(cadr))
+    }
+
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    let quicTag = new QuicTag('PRST')
-    quicTag.setTag('RNON', this.nonceProof)
-    if (this.packetNumber) quicTag.setTag('RSEQ', this.packetNumber.toFullBuffer())
-    if (this.socketAddress) quicTag.setTag('CADR', this.socketAddress.toBuffer())
-    let tagBuf = quicTag.toBuffer()
-
-    let buf = Buffer.alloc(9 + tagBuf.length)
-    buf.writeUInt8(this.flag, 0, true)
-    this.connectionID.toBuffer().copy(buf, 1, 0, 8)
-    tagBuf.copy(buf, 9, 0, tagBuf.length)
-    return buf
+  byteLen (): number {
+    return 9 + this.tags.byteLen()
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {ResetPacket}
-   */
-  static fromBuffer (bufv) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.flag, bufv.v.start, true)
+    this.connectionID.writeTo(bufv)
+    this.tags.writeTo(bufv)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): ResetPacket {
     bufv.v.walk(1) // flag
-    bufv.v.walk(8)
-    let connectionID = new ConnectionID(bufv.slice(bufv.v.start, bufv.v.end))
+    let connectionID = ConnectionID.fromBuffer(bufv)
     let quicTag = QuicTag.fromBuffer(bufv)
     if (quicTag.name !== 'PRST' || quicTag.keys[0] !== 'RNON') {
       throw new QuicError('QUIC_INVALID_PUBLIC_RST_PACKET')
     }
-    let tags = quicTag.getTags()
-    return new ResetPacket(connectionID, tags.RNON,
-      tags.RSEQ && new PacketNumber(tags.RSEQ), tags.CADR && new SocketAddress(tags.CADR))
+    return new ResetPacket(connectionID, quicTag)
   }
 }
 
 /** NegotiationPacket representing a negotiation Packet. */
-class NegotiationPacket extends BasePacket {
+export class NegotiationPacket extends Packet {
   // --- Version Negotiation Packet
   //      0        1        2        3        4        5        6        7       8
   // +--------+--------+--------+--------+--------+--------+--------+--------+--------+
@@ -214,48 +202,35 @@ class NegotiationPacket extends BasePacket {
   // |      1st QUIC version supported   |     2nd QUIC version supported    |   ...
   // |      by server (32)               |     by server (32)                |
   // +--------+--------+--------+--------+--------+--------+--------+--------+---...--+
-  /**
-   * @param {ConnectionID} connectionID
-   * @param {Array<string>} versions
-   */
-  constructor (connectionID, versions) {
+  versions: string[]
+  constructor (connectionID: ConnectionID, versions: string[]) {
     super(connectionID, 0b00001001)
     this.versions = versions
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
-    let buf = Buffer.alloc(9 + 4 * this.versions.length)
-    buf.writeUInt8(this.flag, 0, true)
-    this.connectionID.toBuffer().copy(buf, 1, 0, 8)
-    let offset = 9
-    for (let version of this.versions) {
-      buf.write(version, offset, 4)
-      offset += 4
-    }
-    return buf
+  byteLen (): number {
+    return 9 + 4 * this.versions.length
   }
 
-  /**
-   * @param {ConnectionID} connectionID
-   * @return {NegotiationPacket}
-   */
-  static fromConnectionID (connectionID) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.flag, bufv.v.start, true)
+    this.connectionID.writeTo(bufv)
+    for (let version of this.versions) {
+      bufv.v.walk(4)
+      bufv.write(version, bufv.v.start, 4)
+    }
+    return bufv
+  }
+
+  static fromConnectionID (connectionID: ConnectionID): NegotiationPacket {
     return new NegotiationPacket(connectionID, getVersions())
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @return {NegotiationPacket}
-   */
-  static fromBuffer (bufv) {
+  static fromBuffer (bufv: BufferVisitor): NegotiationPacket {
     bufv.v.walk(1) // flag
-    bufv.v.walk(8)
-    let connectionID = new ConnectionID(bufv.slice(bufv.v.start, bufv.v.end))
+    let connectionID = ConnectionID.fromBuffer(bufv)
     let versions = []
-
     while (bufv.length > bufv.v.end) {
       bufv.v.walk(4)
       let version = bufv.toString('utf8', bufv.v.start, bufv.v.end)
@@ -267,26 +242,24 @@ class NegotiationPacket extends BasePacket {
 }
 
 /** RegularPacket representing a regular Packet. */
-class RegularPacket extends BasePacket {
+export class RegularPacket extends Packet {
   // --- Frame Packet
   // +--------+---...---+--------+---...---+
   // | Type   | Payload | Type   | Payload |
   // +--------+---...---+--------+---...---+
-  /**
-   * @param {ConnectionID} connectionID
-   * @param {PacketNumber} packetNumber
-   * @param {?Buffer} nonce
-   * @param {?string} version
-   */
-  constructor (connectionID, packetNumber, nonce, version) {
+  packetNumber: PacketNumber
+  version: string
+  nonce: Buffer | null
+  frames: Frame[]
+  constructor (connectionID: ConnectionID, packetNumber: PacketNumber, nonce: Buffer | null = null, version: string = '') {
     let flag = version ? 0b00001001 : 0b00001000
-    flag |= (packetNumber.flagBits << 4)
+    flag |= (packetNumber.flagBits() << 4)
     if (nonce) flag |= 0x04
 
     super(connectionID, flag)
     this.packetNumber = packetNumber
-    this.version = version || '' // 4 byte, string
-    this.nonce = nonce || null // 32 byte, buffer
+    this.version = version // 4 byte, string
+    this.nonce = nonce // 32 byte, buffer
     this.frames = []
   }
 
@@ -294,15 +267,12 @@ class RegularPacket extends BasePacket {
    * @param {Array<Frame>} frames
    * @return {this}
    */
-  addFrames (...frames) {
+  addFrames (...frames: Frame[]): this {
     this.frames.push(...frames)
     return this
   }
 
-  /**
-   * @return {Buffer}
-   */
-  toBuffer () {
+  byteLen (): number {
     let len = 9
     if (this.version) {
       len += 4
@@ -310,43 +280,36 @@ class RegularPacket extends BasePacket {
     if (this.nonce) {
       len += 32
     }
-    len += this.packetNumber.byteLen
+    len += this.packetNumber.byteLen()
     for (let frame of this.frames) {
-      len += frame.byteLen
+      len += frame.byteLen()
     }
-
-    let buf = Buffer.alloc(len)
-    buf.writeUInt8(this.flag, 0, true)
-    this.connectionID.toBuffer().copy(buf, 1, 0, 8)
-
-    let v = new Visitor(9)
-    if (this.version) {
-      v.walk(4)
-      buf.write(this.version, v.start, 4)
-    }
-    if (this.nonce) {
-      v.walk(32)
-      this.nonce.copy(buf, v.start, 0, 32)
-    }
-    v.walk(this.packetNumber.byteLen)
-    this.packetNumber.toBuffer().copy(buf, v.start, 0)
-    for (let frame of this.frames) {
-      v.walk(frame.byteLen)
-      frame.toBuffer().copy(buf, v.start, 0)
-    }
-
-    return buf
+    return len
   }
 
-  /**
-   * @param {Buffer} bufv - The bufv is a buffer wrapped by Visitor
-   * @param {number} flag
-   * @return {RegularPacket}
-   */
-  static fromBuffer (bufv, flag) {
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(1)
+    bufv.writeUInt8(this.flag, bufv.v.start, true)
+    this.connectionID.writeTo(bufv)
+
+    if (this.version) {
+      bufv.v.walk(4)
+      bufv.write(this.version, bufv.v.start, 4)
+    }
+    if (this.nonce) {
+      bufv.v.walk(32)
+      this.nonce.copy(bufv, bufv.v.start, 0, 32)
+    }
+    this.packetNumber.writeTo(bufv)
+    for (let frame of this.frames) {
+      frame.writeTo(bufv)
+    }
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor, flag: number): RegularPacket {
     bufv.v.walk(1) // flag
-    bufv.v.walk(8)
-    let connectionID = new ConnectionID(bufv.slice(bufv.v.start, bufv.v.end))
+    let connectionID = ConnectionID.fromBuffer(bufv)
 
     let version
     let hasVersion = flag & 0b1
@@ -363,11 +326,7 @@ class RegularPacket extends BasePacket {
       if (nonce.length !== 32) throw new QuicError('QUIC_INTERNAL_ERROR')
     }
 
-    let packetNumberLen = PacketNumber.flagToByteLen((flag & 0b110000) >> 4)
-    bufv.v.walk(packetNumberLen)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-    let packetNumber = bufv.slice(bufv.v.start, bufv.v.end)
-    packetNumber = new PacketNumber(packetNumber)
+    let packetNumber = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((flag & 0b110000) >> 4))
     let packet = new RegularPacket(connectionID, packetNumber, nonce, version)
     while (bufv.v.end < bufv.length) {
       packet.addFrames(parseFrame(bufv, packetNumber))
@@ -376,7 +335,3 @@ class RegularPacket extends BasePacket {
     return packet
   }
 }
-
-exports.NegotiationPacket = NegotiationPacket
-exports.ResetPacket = ResetPacket
-exports.RegularPacket = RegularPacket

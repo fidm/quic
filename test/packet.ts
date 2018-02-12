@@ -3,29 +3,30 @@
 //
 // **License:** MIT
 
-const { suite, it } = require('tman')
-const { ok, equal, deepEqual } = require('assert')
+import { suite, it } from 'tman'
+import { ok, equal, deepEqual } from 'assert'
 
-const { Visitor } = require('../lib/internal/common')
-const {
+import { toBuffer } from '../src/internal/common'
+import {
   getVersion, getVersions, isSupportedVersion,
-  PacketNumber, ConnectionID, SocketAddress, QUIC_SERVER, QUIC_CLIENT
-} = require('../lib/internal/protocol')
-const {
+  PacketNumber, ConnectionID, SocketAddress, SessionType, QuicTag
+} from '../src/internal/protocol'
+import {
   parsePacket, ResetPacket, NegotiationPacket,
   RegularPacket
-} = require('../lib/internal/packet')
-const {
+} from '../src/internal/packet'
+import {
   PaddingFrame, PingFrame
-} = require('../lib/internal/frame')
+} from '../src/internal/frame'
 
-const { bufferFromBytes } = require('./common')
+import { bufferFromBytes } from './common'
 
 suite('QUIC Packet', function () {
   suite('ResetPacket', function () {
     it('fromBuffer and toBuffer', function () {
       let connectionID = ConnectionID.random()
-      let nonceProof = bufferFromBytes([
+      let quicTag = new QuicTag('PRST')
+      quicTag.setTag('RNON', bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
@@ -34,28 +35,29 @@ suite('QUIC Packet', function () {
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB
-      ])
-      let packetNumber = PacketNumber.fromValue(1)
-      let socketAddress = new SocketAddress(bufferFromBytes([
+      ]))
+      quicTag.setTag('RSEQ', toBuffer(new PacketNumber(1)))
+      quicTag.setTag('CADR', bufferFromBytes([
         0x02, 0x00,
         0x04, 0x1F, 0xC6, 0x2C,
         0xBB, 0x01
       ]))
-      let resetPacket = new ResetPacket(connectionID, nonceProof, packetNumber, socketAddress)
 
-      let buf = resetPacket.toBuffer()
-      let res = ResetPacket.fromBuffer(Visitor.wrap(buf))
+      let resetPacket = new ResetPacket(connectionID, quicTag)
+      let buf = toBuffer(resetPacket)
+      let res = ResetPacket.fromBuffer(buf)
       ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
       ok(resetPacket.packetNumber.equals(res.packetNumber))
       ok(resetPacket.nonceProof.equals(res.nonceProof))
-      deepEqual(resetPacket.socketAddress, res.socketAddress)
+      ok(resetPacket.socketAddress.equals(res.socketAddress))
     })
 
     it('parse with parsePacket', function () {
       let connectionID = ConnectionID.random()
-      let nonceProof = bufferFromBytes([
+      let quicTag = new QuicTag('PRST')
+      quicTag.setTag('RNON', bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
@@ -64,23 +66,23 @@ suite('QUIC Packet', function () {
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB
-      ])
-      let packetNumber = PacketNumber.fromValue(1)
-      let socketAddress = new SocketAddress(bufferFromBytes([
+      ]))
+      quicTag.setTag('RSEQ', toBuffer(new PacketNumber(1)))
+      quicTag.setTag('CADR', bufferFromBytes([
         0x02, 0x00,
         0x04, 0x1F, 0xC6, 0x2C,
         0xBB, 0x01
       ]))
-      let resetPacket = new ResetPacket(connectionID, nonceProof, packetNumber, socketAddress)
 
-      let buf = resetPacket.toBuffer()
-      let res = parsePacket(Visitor.wrap(buf), false)
+      let resetPacket = new ResetPacket(connectionID, quicTag)
+      let buf = toBuffer(resetPacket)
+      let res = parsePacket(buf, SessionType.SERVER) as ResetPacket
       ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
       ok(resetPacket.packetNumber.equals(res.packetNumber))
       ok(resetPacket.nonceProof.equals(res.nonceProof))
-      deepEqual(resetPacket.socketAddress, res.socketAddress)
+      ok(resetPacket.socketAddress.equals(res.socketAddress))
     })
   })
 
@@ -91,8 +93,8 @@ suite('QUIC Packet', function () {
       deepEqual(negotiationPacket.versions, getVersions())
       ok(isSupportedVersion(negotiationPacket.versions[0]))
 
-      let buf = negotiationPacket.toBuffer()
-      let res = NegotiationPacket.fromBuffer(Visitor.wrap(buf))
+      let buf = toBuffer(negotiationPacket)
+      let res = NegotiationPacket.fromBuffer(buf)
       ok(res instanceof NegotiationPacket)
       ok(negotiationPacket.flag === res.flag)
       ok(negotiationPacket.connectionID.equals(res.connectionID))
@@ -105,8 +107,8 @@ suite('QUIC Packet', function () {
       deepEqual(negotiationPacket.versions, getVersions())
       ok(isSupportedVersion(negotiationPacket.versions[0]))
 
-      let buf = negotiationPacket.toBuffer()
-      let res = parsePacket(Visitor.wrap(buf), QUIC_SERVER)
+      let buf = toBuffer(negotiationPacket)
+      let res = parsePacket(buf, SessionType.SERVER) as NegotiationPacket
       ok(res instanceof NegotiationPacket)
       ok(negotiationPacket.flag === res.flag)
       ok(negotiationPacket.connectionID.equals(res.connectionID))
@@ -117,7 +119,7 @@ suite('QUIC Packet', function () {
   suite('RegularPacket', function () {
     it('fromBuffer and toBuffer', function () {
       let connectionID = ConnectionID.random()
-      let packetNumber = PacketNumber.fromValue(16)
+      let packetNumber = new PacketNumber(16)
       let nonceProof = bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB,
@@ -131,8 +133,8 @@ suite('QUIC Packet', function () {
 
       let regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof, getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
-      let buf = regularPacket.toBuffer()
-      let res = RegularPacket.fromBuffer(Visitor.wrap(buf), regularPacket.flag)
+      let buf = toBuffer(regularPacket)
+      let res = RegularPacket.fromBuffer(buf, regularPacket.flag)
       ok(res instanceof RegularPacket)
       ok(regularPacket.flag === res.flag)
       ok(regularPacket.connectionID.equals(res.connectionID))
@@ -145,7 +147,7 @@ suite('QUIC Packet', function () {
 
     it('parse with parsePacket', function () {
       let connectionID = ConnectionID.random()
-      let packetNumber = PacketNumber.fromValue(16)
+      let packetNumber = new PacketNumber(16)
       let nonceProof = bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB,
@@ -159,8 +161,8 @@ suite('QUIC Packet', function () {
 
       let regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof, getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
-      let buf = regularPacket.toBuffer()
-      let res = parsePacket(Visitor.wrap(buf), QUIC_CLIENT)
+      let buf = toBuffer(regularPacket)
+      let res = parsePacket(buf, SessionType.CLIENT) as RegularPacket
       ok(res instanceof RegularPacket)
       ok(regularPacket.flag === res.flag)
       ok(regularPacket.connectionID.equals(res.connectionID))

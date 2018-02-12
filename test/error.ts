@@ -4,13 +4,14 @@
 //
 // **License:** MIT
 
-const path = require('path')
-const { suite, it } = require('tman')
-const { ok, strictEqual, deepEqual } = require('assert')
+import { join } from 'path'
+import { suite, it } from 'tman'
+import { ok, strictEqual, deepEqual } from 'assert'
 
-const { QuicError } = require('../lib/internal/error')
+import { QuicError } from '../src/internal/error'
+import { Visitor, toBuffer } from '../src/internal/common'
 
-const { bufferFromBytes } = require('./common')
+import { bufferFromBytes } from './common'
 
 suite('QUIC errors', function () {
   it('new QuicError(0)', function () {
@@ -18,8 +19,8 @@ suite('QUIC errors', function () {
     strictEqual(err.code, 0)
     strictEqual(err.name, 'QUIC_NO_ERROR')
     strictEqual(err.message, '')
-    ok(err.stack.includes(path.join('test', 'error.js')))
-    ok(err.toBuffer().equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0])))
+    ok(err.stack.includes(join('test', 'error.ts')))
+    ok(toBuffer(err).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0])))
     deepEqual(err, new QuicError('QUIC_NO_ERROR'))
   })
 
@@ -28,8 +29,8 @@ suite('QUIC errors', function () {
     strictEqual(err.code, 1)
     strictEqual(err.name, 'QUIC_INTERNAL_ERROR')
     strictEqual(err.message, 'Connection has reached an invalid state.')
-    ok(err.stack.includes(path.join('test', 'error.js')))
-    ok(err.toBuffer().equals(bufferFromBytes([0x1, 0x0, 0x0, 0x0])))
+    ok(err.stack.includes(join('test', 'error.ts')))
+    ok(toBuffer(err).equals(bufferFromBytes([0x1, 0x0, 0x0, 0x0])))
     deepEqual(err, new QuicError('QUIC_INTERNAL_ERROR'))
   })
 
@@ -38,12 +39,12 @@ suite('QUIC errors', function () {
     strictEqual(err.code, 0xffffffff)
     strictEqual(err.name, 'INVALID_ERROR_CODE')
     strictEqual(err.message, 'xxxxxxxx')
-    ok(err.stack.includes(path.join('test', 'error.js')))
-    ok(err.toBuffer().equals(bufferFromBytes([0xff, 0xff, 0xff, 0xff])))
+    ok(err.stack.includes(join('test', 'error.ts')))
+    ok(toBuffer(err).equals(bufferFromBytes([0xff, 0xff, 0xff, 0xff])))
   })
 
   it('QuicError.fromBuffer', function () {
-    strictEqual(QuicError.fromBuffer(bufferFromBytes([0x0, 0x0, 0x0, 0x0])), null)
+    strictEqual(QuicError.fromBuffer(bufferFromBytes([0x0, 0x0, 0x0, 0x0])).name, 'QUIC_NO_ERROR')
     let err = QuicError.fromBuffer(bufferFromBytes([0x1, 0x0, 0x0, 0x0]))
     deepEqual(err, new QuicError(1))
 

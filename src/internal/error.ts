@@ -3,15 +3,20 @@
 //
 // **License:** MIT
 
+import { BufferVisitor } from './common'
+
 const errors = Object.create(null)
 const streamErrors = Object.create(null)
-const INVALID_ERROR = {name: 'INVALID_ERROR_CODE', code: 0xffffffff}
-const INVALID_RST_STREAM_ERROR = {name: 'INVALID_RST_STREAM_ERROR_CODE', code: 0xffffffff}
+const INVALID_ERROR = { name: 'INVALID_ERROR_CODE', code: 0xffffffff }
+const INVALID_RST_STREAM_ERROR = { name: 'INVALID_RST_STREAM_ERROR_CODE', code: 0xffffffff }
 
 // https://github.com/google/proto-quic/blob/master/src/net/quic/core/quic_error_codes.h
 /** QuicError representing a QUIC Error. */
-class QuicError extends Error {
-  constructor (nameOrCode) {
+export class QuicError extends Error {
+  name: string
+  code: number
+
+  constructor (nameOrCode: string | number) {
     let error = errors[nameOrCode] || INVALID_ERROR
     super(error !== INVALID_ERROR ? error.message : nameOrCode)
     this.name = error.name
@@ -19,21 +24,30 @@ class QuicError extends Error {
     Error.captureStackTrace(this, QuicError)
   }
 
-  toBuffer () {
-    let buf = Buffer.alloc(4)
-    buf.writeUInt32LE(this.code)
-    return buf
+  byteLen (): number {
+    return 4
   }
 
-  static fromBuffer (buf) {
-    let code = buf.readUInt32LE(0, true)
-    return code ? new QuicError(code) : null
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(4)
+    bufv.writeUInt32LE(this.code, bufv.v.start)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): QuicError {
+    bufv.v.walk(4)
+    if (bufv.length < bufv.v.end) throw new QuicError('INVALID_ERROR_CODE')
+    let code = bufv.readUInt32LE(bufv.v.start)
+    return new QuicError(code)
   }
 }
 
 /** QuicError representing a QUIC Stream Error. */
-class QuicStreamError extends Error {
-  constructor (nameOrCode) {
+export class QuicStreamError extends Error {
+  name: string
+  code: number
+
+  constructor (nameOrCode: string | number) {
     let error = streamErrors[nameOrCode] || INVALID_RST_STREAM_ERROR
     super(error !== INVALID_RST_STREAM_ERROR ? error.message : nameOrCode)
     this.name = error.name
@@ -41,15 +55,21 @@ class QuicStreamError extends Error {
     Error.captureStackTrace(this, QuicStreamError)
   }
 
-  toBuffer () {
-    let buf = Buffer.alloc(4)
-    buf.writeUInt32LE(this.code)
-    return buf
+  byteLen (): number {
+    return 4
   }
 
-  static fromBuffer (buf) {
-    let code = buf.readUInt32LE(0, true)
-    return code ? new QuicStreamError(code) : null
+  writeTo (bufv: BufferVisitor): BufferVisitor {
+    bufv.v.walk(4)
+    bufv.writeUInt32LE(this.code, bufv.v.start)
+    return bufv
+  }
+
+  static fromBuffer (bufv: BufferVisitor): QuicStreamError {
+    bufv.v.walk(4)
+    if (bufv.length < bufv.v.end) throw new QuicError('INVALID_ERROR_CODE')
+    let code = bufv.readUInt32LE(bufv.v.start)
+    return new QuicStreamError(code)
   }
 }
 
@@ -628,6 +648,3 @@ for (let key of Object.keys(errors)) {
   error.name = key
   errors[error.code] = error
 }
-
-exports.QuicError = QuicError
-exports.QuicStreamError = QuicStreamError

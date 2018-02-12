@@ -3,14 +3,16 @@
 //
 // **License:** MIT
 
-const EventEmitter = require('events')
-const {
-  QUIC_SERVER,
-  QUIC_CLIENT,
+import { EventEmitter } from 'events'
+import { Socket } from 'dgram'
+import {
+  SessionType,
   StreamID,
-  PacketNumber
- } = require('./internal/protocol')
-const {
+  PacketNumber,
+  ConnectionID,
+  SocketAddress
+ } from './internal/protocol'
+ import {
   kID,
   kStreams,
   kSocket,
@@ -19,53 +21,69 @@ const {
   kVersion,
   kNextStreamID,
   kNextPacketNumber
-} = require('./internal/symbol')
-const {
-  PingFrame
-  // StreamFrame
-} = require('./internal/frame')
-const { RegularPacket } = require('./internal/packet')
+} from './internal/symbol'
+import {
+  Frame,
+  PingFrame,
+  StreamFrame,
+  AckFrame,
+  ConnectionCloseFrame
+} from './internal/frame'
+import { Packet, RegularPacket } from './internal/packet'
 
-const { QUICStream } = require('./stream')
+import { Stream } from './stream'
+import { BufferVisitor, toBuffer } from './internal/common';
+
+const kACKHandler = Symbol('ACKHandler')
 
 //
 // *************** Session ***************
 //
-class Session extends EventEmitter {
+export class Session extends EventEmitter {
   // Event: 'timeout'
   // Event: 'close'
   // Event: 'error'
   // Event: 'stream'
   // Event: 'version'
 
-  constructor (id, type) {
+  private [kID]: ConnectionID
+  private [kType]: SessionType
+  private [kStreams]: Map<number, Stream>
+  private [kNextStreamID]: StreamID
+  private [kState]: SessionState
+  private [kACKHandler]: ACKHandler
+  private [kSocket]: Socket | null
+  private [kVersion]: string
+  private [kNextPacketNumber]: PacketNumber
+  constructor (id: ConnectionID, type: SessionType) {
     super()
 
     this[kID] = id
-    this[kType] = type // 0: QUIC_SERVER or 1: QUIC_CLIENT
+    this[kType] = type
     this[kStreams] = new Map()
-    this[kNextStreamID] = StreamID.fromValue(type === QUIC_SERVER ? 0 : 1)
+    this[kNextStreamID] = new StreamID(type === SessionType.SERVER ? 0 : 1)
     this[kState] = new SessionState()
+    this[kACKHandler] = new ACKHandler()
     this[kSocket] = null
     this[kVersion] = ''
-    this[kNextPacketNumber] = PacketNumber.fromValue(1)
+    this[kNextPacketNumber] = new PacketNumber(1)
     this.setMaxListeners((2 ** 31) - 1)
   }
 
-  get id () {
-    return this[kID].value
+  get id (): string {
+    return this[kID].valueOf()
   }
 
-  get version () {
+  get version (): string {
     return this[kVersion]
   }
 
-  get isClient () {
-    return this[kType] === QUIC_CLIENT
+  get isClient (): boolean {
+    return this[kType] === SessionType.CLIENT
   }
 
   // true if the Http2Session has been destroyed
-  get destroyed () {
+  get destroyed (): boolean {
     return this[kState].destroyed
   }
 
@@ -87,7 +105,7 @@ class Session extends EventEmitter {
     }
   }
 
-  _sendFrame (frame, callback) {
+  _sendFrame (frame: Frame, callback: (...args: any[]) => void) {
     let packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
     let regularPacket = new RegularPacket(this[kID], packetNumber, null, '')
@@ -96,13 +114,15 @@ class Session extends EventEmitter {
   }
 
   // _onPacket (packet) {}
-  _sendPacket (packet, callback) {
-    let buf = packet.toBuffer()
-    if (!this[kSocket]) return callback(new Error('UDP not connect'))
-    this[kSocket].send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
+  _sendPacket (packet: Packet, callback: (...args: any[]) => void) {
+
+    let buf = toBuffer(packet)
+    let socket = this[kSocket]
+    if (!socket) return callback(new Error('UDP not connect'))
+    socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
   }
 
-  _handleRegularPacket (packet, rcvTime, bufv) {
+  _handleRegularPacket (packet: RegularPacket, rcvTime: number, _bufv: BufferVisitor) {
     if (this.isClient && packet.nonce) {
       // TODO
       // this.cryptoSetup.SetDiversificationNonce(packet.nonce)
@@ -113,10 +133,10 @@ class Session extends EventEmitter {
     for (let frame of packet.frames) {
       switch (frame.name) {
         case 'STREAM':
-          this._handleStreamFrame(frame)
+          this._handleStreamFrame(frame as StreamFrame)
           break
         case 'ACK':
-          this._handleACKFrame(frame)
+          this._handleACKFrame(frame as AckFrame)
           break
         case 'STOP_WAITING':
           break
@@ -134,7 +154,7 @@ class Session extends EventEmitter {
           this.emit('ping')
           break
         case 'CONNECTION_CLOSE':
-          this.closeRemote(frame.error)
+          this._closeLocal((frame as ConnectionCloseFrame).error)
           break
         case 'GOAWAY':
           break
@@ -145,11 +165,11 @@ class Session extends EventEmitter {
   /**
    * @param {StreamFrame} frame
    */
-  _handleStreamFrame (frame) {
-    let streamID = frame.streamID.value
+  _handleStreamFrame (frame: StreamFrame) {
+    let streamID = frame.streamID.valueOf()
     let stream = this[kStreams].get(streamID)
     if (!stream) {
-      stream = new QUICStream(frame.streamID, this, {})
+      stream = new Stream(frame.streamID, this, {})
       this[kStreams].set(streamID, stream)
       this.emit('stream', stream)
     }
@@ -157,34 +177,35 @@ class Session extends EventEmitter {
     stream._handleFrame(frame)
   }
 
-  _handleACKFrame (frame) {}
+  _handleACKFrame (_frame: AckFrame) {}
 
-  request (options) {
+  request (options: any) {
     let streamID = this[kNextStreamID]
     this[kNextStreamID] = streamID.nextID()
-    let stream = new QUICStream(streamID, this, options || {})
-    this[kStreams].set(streamID.value, stream)
+    let stream = new Stream(streamID, this, options || {})
+    this[kStreams].set(streamID.valueOf(), stream)
     return stream
   }
 
-  goaway (code, lastStreamID, opaqueData) {}
+  goaway (_code: number, _lastStreamID: StreamID, _opaqueData: Buffer) {}
 
   ping () {
     return new Promise((resolve, reject) => {
-      this._sendFrame(new PingFrame(), (err) => {
+      this._sendFrame(new PingFrame(), (err: any) => {
         if (err != null) reject(err)
         else resolve()
       })
     })
   }
 
-  setTimeout (msecs) {}
+  setTimeout (_msecs: number) {}
 
   // Graceful or immediate shutdown of the Session. Graceful shutdown
   // is only supported on the server-side
-  close () {}
+  close (_err: any) {}
 
-  closeRemote (_err) {}
+  _closeRemote (_err: any) {}
+  _closeLocal (_err: any) {}
 
   destroy () {}
 
@@ -193,7 +214,27 @@ class Session extends EventEmitter {
   unref () {}
 }
 
-class SessionState {
+export class SessionState {
+  localFamily: string
+  localAddress: string
+  localPort: number
+  localAddr: SocketAddress | null // SocketAddress
+
+  remoteFamily: string
+  remoteAddress: string
+  remotePort: number
+  remoteAddr: SocketAddress | null // SocketAddress
+
+  pendingAck: number
+  bytesRead: number
+  bytesWritten: number
+  lastNetworkActivityTime: number
+
+  destroyed: boolean
+  shutdown: boolean
+  shuttingDown: boolean
+  keepAlivePingSent: false
+
   constructor () {
     this.localFamily = ''
     this.localAddress = ''
@@ -217,4 +258,4 @@ class SessionState {
   }
 }
 
-exports.Session = Session
+class ACKHandler {}
