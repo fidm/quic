@@ -22,14 +22,12 @@ import {
   ConnectionID
 } from './internal/protocol'
 
-import { Session, SessionState } from './session'
+import { Session } from './session'
 
 const debug = debuglog('quic')
 
 export class ServerSession extends Session {
-  [kSocket]: Socket
   [kServer]: Server
-  [kState]: SessionState
   constructor (id: ConnectionID, socket: Socket, server: Server) {
     super(id, SessionType.SERVER)
     this[kSocket] = socket

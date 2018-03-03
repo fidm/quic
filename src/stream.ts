@@ -117,7 +117,7 @@ export class Stream extends Duplex {
   }
 }
 
-export class StreamState {
+class StreamState {
   aborted: boolean
   finished: boolean
   bytesRead: number

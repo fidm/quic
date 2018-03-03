@@ -8,9 +8,9 @@ import { randomBytes } from 'crypto'
 import { AddressInfo } from 'dgram'
 import { QuicError } from './error'
 
+import { kVal } from './symbol'
 import { Visitor, BufferVisitor } from './common'
 
-const kVal = Symbol('Protocol.val')
 const QUIC_VERSIONS = ['Q039']
 
 export enum SessionType {

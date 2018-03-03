@@ -19,6 +19,7 @@ import {
   kState,
   kType,
   kVersion,
+  kACKHandler,
   kNextStreamID,
   kNextPacketNumber
 } from './internal/symbol'
@@ -33,8 +34,6 @@ import { Packet, RegularPacket } from './internal/packet'
 
 import { Stream } from './stream'
 import { BufferVisitor, toBuffer } from './internal/common';
-
-const kACKHandler = Symbol('ACKHandler')
 
 //
 // *************** Session ***************
@@ -177,7 +176,9 @@ export class Session extends EventEmitter {
     stream._handleFrame(frame)
   }
 
-  _handleACKFrame (_frame: AckFrame) {}
+  _handleACKFrame (_frame: AckFrame) {
+    this[kACKHandler].ack(_frame)
+  }
 
   request (options: any) {
     let streamID = this[kNextStreamID]
@@ -258,4 +259,6 @@ export class SessionState {
   }
 }
 
-class ACKHandler {}
+class ACKHandler {
+  ack (_val: any) {}
+}

@@ -5,7 +5,7 @@
     "Yan Qing <admin@zensh.com>"
   ],
   "version": "0.1.0",
-  "main": "lib/index.js",
+  "main": "dist/index.js",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -19,18 +19,15 @@
     "quic",
     "udp"
   ],
-  "dependencies": {
-    "teambition-sdk": "^0.10.0-alpha.9-wsworks"
-  },
   "devDependencies": {
-    "@types/node": "^9.4.5",
+    "@types/node": "^9.4.6",
     "ilog": "^1.2.1",
     "thunks": "^4.9.1",
     "tman": "^1.7.4",
-    "ts-node": "^4.1.0",
+    "ts-node": "^5.0.1",
     "tslint": "^5.9.1",
-    "tslint-eslint-rules": "^4.1.1",
-    "typescript": "^2.7.1"
+    "tslint-eslint-rules": "^5.1.0",
+    "typescript": "^2.7.2"
   },
   "scripts": {
     "test": "tman -r ts-node/register",
@@ -38,7 +35,8 @@
     "build": "rm -rf dist && tsc"
   },
   "files": [
+    "dist",
     "README.md",
-    "lib"
+    "CHANGELOG.md"
   ]
 }
