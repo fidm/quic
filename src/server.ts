@@ -8,18 +8,21 @@ import { EventEmitter } from 'events'
 import { createSocket, Socket, AddressInfo } from 'dgram'
 
 import { lookup, Visitor } from './internal/common'
-import { parsePacket, ResetPacket, RegularPacket } from './internal/packet'
+import { parsePacket, ResetPacket, NegotiationPacket, RegularPacket } from './internal/packet'
 // import { QuicError } from './internal/error'
 import {
+  kID,
   kSocket,
   kState,
+  kVersion,
   kServer
 } from './internal/symbol'
 import {
   MaxReceivePacketSize,
   SocketAddress,
   SessionType,
-  ConnectionID
+  ConnectionID,
+  isSupportedVersion
 } from './internal/protocol'
 
 import { Session } from './session'
@@ -164,7 +167,6 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     return
   }
 
-  session[kState].bytesRead += msg.length
   // update the remote address, even if unpacking failed for any other reason than a decryption error
   session[kState].remotePort = senderAddr.port
   session[kState].remoteAddress = senderAddr.address
@@ -180,6 +182,24 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     return
   }
 
+  if (!session[kState].versionNegotiated) {
+    let version = (packet as RegularPacket).version
+    if (version) {
+      if (!isSupportedVersion(version)) {
+        let negotiationPacket = NegotiationPacket.fromConnectionID(session[kID])
+        session._sendPacket(negotiationPacket, (err) => {
+          if (err != null && session) {
+            session._closeRemote(err)
+          }
+        })
+        return
+      }
+      session[kVersion] = version
+    }
+    session[kState].versionNegotiated = true
+  }
+
+  session[kState].bytesRead += msg.length
   session._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
 }
 

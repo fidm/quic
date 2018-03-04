@@ -90,9 +90,10 @@ export const MaxOffset = Number.MAX_SAFE_INTEGER
 // ethernet's max size, minus the IP and UDP headers. IPv6 has a 40 byte header,
 // UDP adds an additional 8 bytes.  This is a total overhead of 48 bytes.
 // Ethernet's max packet size is 1500 bytes,  1500 - 48 = 1452.
-export const MaxReceivePacketSize = 1452
+// the current QUIC implementation uses a 1350-byte maximum QUIC packet size for IPv6, 1370 for IPv4. Both sizes are without IP and UDP overhead.
+export const MaxReceivePacketSize = 1350
 
-export const MaxStreamBufferSize = 1400 // todo
+export const MaxStreamBufferSize = 1280 // todo
 
 // DefaultTCPMSS is the default maximum packet size used in the Linux TCP implementation.
 // Used in QUIC for congestion window computations in bytes.
@@ -275,9 +276,11 @@ export class PacketNumber extends Protocol {
 }
 
 /** StreamID representing a streamID. */
+// the Stream-ID must be even if the server initiates the stream, and odd if the client initiates the stream.
+// 0 is not a valid Stream-ID. Stream 1 is reserved for the crypto handshake, which should be the first client-initiated stream.
 export class StreamID extends Protocol {
   constructor (id: number) {
-    if (!Number.isInteger(id) || id < 0 || id > 0xffffffff) {
+    if (!Number.isInteger(id) || id < 1 || id > 0xffffffff) {
       throw new Error(`invalid Stream ID ${id}`)
     }
     super(id)
@@ -345,11 +348,11 @@ export class Offset extends Protocol {
     super(offset)
   }
 
-  valueOf () {
+  valueOf (): number {
     return this[kVal]
   }
 
-  equals (other: Offset) {
+  equals (other: Offset): boolean {
     return (other instanceof Offset) && this.valueOf() === other.valueOf()
   }
 

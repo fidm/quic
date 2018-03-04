@@ -133,12 +133,9 @@ suite('QUIC Protocol', function () {
   suite('StreamID', function () {
     it('StreamID.fromBuffer', function () {
       throws(() => StreamID.fromBuffer(bufferFromBytes([]), 0))
+      throws(() => StreamID.fromBuffer(bufferFromBytes([0x0]), 1))
 
-      let streamID = StreamID.fromBuffer(bufferFromBytes([0x0]), 1)
-      strictEqual(streamID.valueOf(), 0)
-      ok(toBuffer(streamID).equals(bufferFromBytes([0x0])))
-
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x1]), 1)
+      let streamID = StreamID.fromBuffer(bufferFromBytes([0x1]), 1)
       strictEqual(streamID.valueOf(), 1)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x1])))
 
@@ -169,14 +166,10 @@ suite('QUIC Protocol', function () {
 
     it('new StreamID', function () {
       throws(() => new StreamID(-1))
+      throws(() => new StreamID(0))
 
-      let id = 0  // 8 bits
+      let id = 1  // 8 bits
       let streamID = new StreamID(id)
-      strictEqual(streamID.valueOf(), id)
-      ok(toBuffer(streamID).equals(bufferFromBytes([0x0])))
-
-      id = 1  // 8 bits
-      streamID = new StreamID(id)
       strictEqual(streamID.valueOf(), id)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x1])))
 

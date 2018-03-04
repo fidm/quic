@@ -116,6 +116,10 @@ export abstract class Packet {
     return this.flag === 0b00001001
   }
 
+  isRegular (): boolean {
+    return this instanceof RegularPacket
+  }
+
   abstract byteLen (): number
 
   abstract writeTo (bufv: BufferVisitor): BufferVisitor
@@ -251,16 +255,21 @@ export class RegularPacket extends Packet {
   version: string
   nonce: Buffer | null
   frames: Frame[]
-  constructor (connectionID: ConnectionID, packetNumber: PacketNumber, nonce: Buffer | null = null, version: string = '') {
-    let flag = version ? 0b00001001 : 0b00001000
+  constructor (connectionID: ConnectionID, packetNumber: PacketNumber, nonce: Buffer | null = null) {
+    let flag = 0b00001000
     flag |= (packetNumber.flagBits() << 4)
     if (nonce) flag |= 0x04
 
     super(connectionID, flag)
     this.packetNumber = packetNumber
-    this.version = version // 4 byte, string
+    this.version = '' // 4 byte, string
     this.nonce = nonce // 32 byte, buffer
     this.frames = []
+  }
+
+  setVersion (version: string) {
+    this.flag |= 0b00000001
+    this.version = version
   }
 
   /**
@@ -311,7 +320,7 @@ export class RegularPacket extends Packet {
     bufv.v.walk(1) // flag
     let connectionID = ConnectionID.fromBuffer(bufv)
 
-    let version
+    let version = ''
     let hasVersion = flag & 0b1
     if (hasVersion) {
       bufv.v.walk(4)
@@ -327,7 +336,10 @@ export class RegularPacket extends Packet {
     }
 
     let packetNumber = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((flag & 0b110000) >> 4))
-    let packet = new RegularPacket(connectionID, packetNumber, nonce, version)
+    let packet = new RegularPacket(connectionID, packetNumber, nonce)
+    if (version) {
+      packet.setVersion(version)
+    }
     while (bufv.v.end < bufv.length) {
       packet.addFrames(parseFrame(bufv, packetNumber))
     }

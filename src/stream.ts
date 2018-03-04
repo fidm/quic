@@ -4,12 +4,13 @@
 // **License:** MIT
 
 import { Duplex } from 'stream'
+import { QuicStreamError } from './internal/error'
 import {
   Offset,
   StreamID,
   MaxStreamBufferSize
 } from './internal/protocol'
-import { StreamFrame } from './internal/frame'
+import { StreamFrame, RstStreamFrame } from './internal/frame'
 import {
   kID,
   kSession,
@@ -66,19 +67,30 @@ export class Stream extends Duplex {
   close (_code: any): void {}
 
   // Reset closes the stream with an error.
-  reset (_err: any): void {}
+  reset (err: Error): Promise<number> {
+    this[kState].localFIN = true
+    let offset = this[kState].writeOffset
+    let rstStreamFrame = new RstStreamFrame(this[kID], offset, QuicStreamError.fromError(err))
+    return new Promise((resolve, reject) => {
+      this[kSession]._sendFrame(rstStreamFrame, (err) => {
+        if (err != null) reject(err)
+        else resolve(offset.valueOf())
+      })
+    })
+  }
 
   _handleFrame (frame: StreamFrame): void {
     if (frame.data != null) {
       this[kState].bytesRead += frame.data.length
       this[kState].readQueue.push(frame)
-      this._read(MaxStreamBufferSize * 10) // try to read all
     }
-    if (frame.data == null || frame.isFIN) {
+    if (frame.isFIN && !this[kState].remoteFIN) {
       // TODO end stream
-      this[kState].finished = true
-      this.push(null)
+      this[kState].remoteFIN = true
+      this[kState].readQueue.setEndOffset(frame.offset.valueOf())
     }
+
+    this._read(MaxStreamBufferSize * 10) // try to read all
   }
 
   _flushData (shouldFin: boolean, callback: (...args: any[]) => void): void {
@@ -98,6 +110,8 @@ export class Stream extends Duplex {
   }
 
   _write (chunk: Buffer, _encoding: string, callback: (...args: any[]) => void): void {
+    if (this[kState].localFIN) return callback(new QuicStreamError('QUIC_RST_ACKNOWLEDGEMENT'))
+    if (this[kState].remoteFIN) return callback(new QuicStreamError('QUIC_STREAM_CANCELLED'))
     if (!(chunk instanceof Buffer)) return callback(new Error('invalid data'))
     this[kState].bufferList.push(chunk)
     this._flushData(false, callback)
@@ -114,10 +128,16 @@ export class Stream extends Duplex {
         this._read(size - data.length)
       }
     }
+    if (this[kState].readQueue.isEnd()) {
+      // TODO: maybe some data on flight
+      this.push(null)
+    }
   }
 }
 
 class StreamState {
+  localFIN: boolean
+  remoteFIN: boolean
   aborted: boolean
   finished: boolean
   bytesRead: number
@@ -126,6 +146,8 @@ class StreamState {
   bufferList: StreamDataList
   writeOffset: Offset
   constructor () {
+    this.localFIN = false
+    this.remoteFIN = false
     this.aborted = false
     this.finished = false
     this.bytesRead = 0
@@ -207,9 +229,19 @@ class StreamFrameEntry {
 class StreamFramesSorter {
   head: StreamFrameEntry | null
   readOffset: number
+  endOffset: number
   constructor () {
     this.head = null
     this.readOffset = 0
+    this.endOffset = -1
+  }
+
+  setEndOffset (offset: number) {
+    this.endOffset = offset
+  }
+
+  isEnd (): boolean {
+    return this.readOffset === this.endOffset
   }
 
   /**
@@ -243,7 +275,7 @@ class StreamFramesSorter {
 
   read (): Buffer | null {
     let data = null
-    if (this.head != null && this.readOffset >= this.head.offset) {
+    if (this.head != null && this.readOffset === this.head.offset) {
       data = this.head.data
       this.readOffset = this.head.offset + (data ? data.length : 0)
       this.head = this.head.next

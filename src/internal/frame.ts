@@ -3,7 +3,7 @@
 //
 // **License:** MIT
 
-import { QuicError } from './error'
+import { QuicError, QuicStreamError } from './error'
 import { PacketNumber, Offset, StreamID } from './protocol'
 import { BufferVisitor, readUFloat16, writeUFloat16 } from './common'
 
@@ -132,11 +132,11 @@ export class StreamFrame extends Frame {
 
     this.streamID = streamID
     this.offset = offset
-    this.data = data
     if (!isFIN && (!Buffer.isBuffer(data) || data.length === 0)) {
       throw new QuicError('QUIC_INVALID_STREAM_DATA')
     }
-    this.isFIN = isFIN || this.data == null || this.data.length === 0
+    this.data = data
+    this.isFIN = isFIN || data == null || data.length === 0
   }
 
   byteLen (): number {
@@ -814,8 +814,8 @@ export class RstStreamFrame extends Frame {
   //
   streamID: StreamID
   offset: Offset
-  error: QuicError
-  constructor (streamID: StreamID, offset: Offset, error: QuicError) {
+  error: QuicStreamError
+  constructor (streamID: StreamID, offset: Offset, error: QuicStreamError) {
     super(0x01, 'RST_STREAM')
     this.streamID = streamID
     this.offset = offset

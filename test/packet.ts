@@ -131,7 +131,8 @@ suite('QUIC Packet', function () {
         0x01, 0xEF, 0xCD, 0xAB
       ])
 
-      let regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof, getVersion())
+      let regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof)
+      regularPacket.setVersion(getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
       let buf = toBuffer(regularPacket)
       let res = RegularPacket.fromBuffer(buf, regularPacket.flag)
@@ -159,7 +160,8 @@ suite('QUIC Packet', function () {
         0x01, 0xEF, 0xCD, 0xAB
       ])
 
-      let regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof, getVersion())
+      let regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof)
+      regularPacket.setVersion(getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
       let buf = toBuffer(regularPacket)
       let res = parsePacket(buf, SessionType.CLIENT) as RegularPacket

@@ -45,22 +45,22 @@ export class Session extends EventEmitter {
   // Event: 'stream'
   // Event: 'version'
 
-  private [kID]: ConnectionID
-  private [kType]: SessionType
-  private [kStreams]: Map<number, Stream>
-  private [kNextStreamID]: StreamID
-  private [kState]: SessionState
-  private [kACKHandler]: ACKHandler
-  private [kSocket]: Socket | null
-  private [kVersion]: string
-  private [kNextPacketNumber]: PacketNumber
+  protected [kID]: ConnectionID
+  protected [kType]: SessionType
+  protected [kStreams]: Map<number, Stream>
+  protected [kNextStreamID]: StreamID
+  protected [kState]: SessionState
+  protected [kACKHandler]: ACKHandler
+  protected [kSocket]: Socket | null
+  protected [kVersion]: string
+  protected [kNextPacketNumber]: PacketNumber
   constructor (id: ConnectionID, type: SessionType) {
     super()
 
     this[kID] = id
     this[kType] = type
     this[kStreams] = new Map()
-    this[kNextStreamID] = new StreamID(type === SessionType.SERVER ? 0 : 1)
+    this[kNextStreamID] = new StreamID(type === SessionType.SERVER ? 2 : 1)
     this[kState] = new SessionState()
     this[kACKHandler] = new ACKHandler()
     this[kSocket] = null
@@ -107,13 +107,16 @@ export class Session extends EventEmitter {
   _sendFrame (frame: Frame, callback: (...args: any[]) => void) {
     let packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
-    let regularPacket = new RegularPacket(this[kID], packetNumber, null, '')
+    let regularPacket = new RegularPacket(this[kID], packetNumber)
     regularPacket.addFrames(frame)
     this._sendPacket(regularPacket, callback)
   }
 
   // _onPacket (packet) {}
   _sendPacket (packet: Packet, callback: (...args: any[]) => void) {
+    if (this.isClient && !this[kState].versionNegotiated && packet.isRegular()) {
+      (packet as RegularPacket).setVersion(this[kVersion])
+    }
 
     let buf = toBuffer(packet)
     let socket = this[kSocket]
@@ -234,7 +237,8 @@ export class SessionState {
   destroyed: boolean
   shutdown: boolean
   shuttingDown: boolean
-  keepAlivePingSent: false
+  versionNegotiated: boolean
+  keepAlivePingSent: boolean
 
   constructor () {
     this.localFamily = ''
@@ -255,10 +259,11 @@ export class SessionState {
     this.destroyed = false
     this.shutdown = false
     this.shuttingDown = false
+    this.versionNegotiated = false
     this.keepAlivePingSent = false
   }
 }
 
-class ACKHandler {
+export class ACKHandler {
   ack (_val: any) {}
 }

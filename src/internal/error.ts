@@ -34,6 +34,11 @@ export class QuicError extends Error {
     return bufv
   }
 
+  static fromError (err: any = INVALID_ERROR): QuicError {
+    if (err instanceof QuicError) return err
+    return new QuicError(err.code || err.name)
+  }
+
   static fromBuffer (bufv: BufferVisitor): QuicError {
     bufv.v.walk(4)
     if (bufv.length < bufv.v.end) throw new QuicError('INVALID_ERROR_CODE')
@@ -63,6 +68,11 @@ export class QuicStreamError extends Error {
     bufv.v.walk(4)
     bufv.writeUInt32LE(this.code, bufv.v.start)
     return bufv
+  }
+
+  static fromError (err: any = INVALID_RST_STREAM_ERROR): QuicStreamError {
+    if (err instanceof QuicStreamError) return err
+    return new QuicStreamError(err.code || err.name)
   }
 
   static fromBuffer (bufv: BufferVisitor): QuicStreamError {

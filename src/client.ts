@@ -75,10 +75,8 @@ export class Client extends Session {
 }
 
 export class ClientState {
-  versionNegotiated: boolean
   receivedNegotiationPacket: boolean
   constructor () {
-    this.versionNegotiated = false
     this.receivedNegotiationPacket = false
   }
 }
@@ -127,41 +125,41 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
     return
   }
 
-  client[kState].bytesRead += msg.length
   if (packet.isNegotiation()) {
     // ignore delayed / duplicated version negotiation packets
-    if (client[kClientState].receivedNegotiationPacket || client[kClientState].versionNegotiated) {
+    if (client[kClientState].receivedNegotiationPacket || client[kState].versionNegotiated) {
       return
     }
 
     let versions = (packet as NegotiationPacket).versions
-    if (client.version && versions.includes(client.version)) {
+    if (client[kVersion] && versions.includes(client[kVersion])) {
       // the version negotiation packet contains the version that we offered
       // this might be a packet sent by an attacker (or by a terribly broken server implementation)
       // ignore it
       return
     }
 
-    client[kClientState].receivedNegotiationPacket = true
     let newVersion = chooseVersion(versions)
-    if (!newVersion) {
+    client[kClientState].receivedNegotiationPacket = true
+    if (newVersion) {
+      // switch to negotiated version
+      client[kVersion] = newVersion
+      // TODO: resend all packets using this version
+    } else {
       client.close(new QuicError('QUIC_INVALID_VERSION'))
     }
 
-    // switch to negotiated version
-    // let initialVersion = session.version
-    client[kVersion] = newVersion
-    // do some other...
     return
   }
 
   // this is the first packet after the client sent a packet with the VersionFlag set
   // if the server doesn't send a version negotiation packet, it supports the suggested version
-  if (!client[kClientState].versionNegotiated) {
-    client[kClientState].versionNegotiated = true
+  if (!client[kState].versionNegotiated) {
+    client[kState].versionNegotiated = true
     client.emit('version', client.version)
   }
 
+  client[kState].bytesRead += msg.length
   client._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
 }
 

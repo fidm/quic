@@ -950,8 +950,8 @@ suite('QUIC Frame', function () {
   })
 
   suite('WINDOW_UPDATE Frame', function () {
-    it('new WindowUpdateFrame with StreamID(0)', function () {
-      let streamID = new StreamID(0)
+    it('new WindowUpdateFrame with StreamID', function () {
+      let streamID = new StreamID(10)
       let offset = Offset.fromBuffer(bufferFromBytes([0xff, 0xff, 0xff, 0xff]), 4)
       let windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
 
@@ -959,14 +959,14 @@ suite('QUIC Frame', function () {
       let buf = toBuffer(windowUpdateFrame)
       ok(buf.equals(bufferFromBytes([
         0x04,
-        0x00, 0x00, 0x00, 0x00,
+        0x0a, 0x00, 0x00, 0x00,
         0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00
       ])))
       ok(buf.equals(toBuffer(WindowUpdateFrame.fromBuffer(buf))))
     })
 
     it('parse with parseFrame', function () {
-      let streamID = new StreamID(0)
+      let streamID = new StreamID(10)
       let offset = Offset.fromBuffer(bufferFromBytes([0xff, 0xff, 0xff, 0xff]), 4)
       let windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
 
@@ -974,7 +974,7 @@ suite('QUIC Frame', function () {
       let buf = toBuffer(windowUpdateFrame)
       ok(buf.equals(bufferFromBytes([
         0x04,
-        0x00, 0x00, 0x00, 0x00,
+        0x0a, 0x00, 0x00, 0x00,
         0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00
       ])))
       ok(buf.equals(toBuffer(parseFrame(buf, new PacketNumber(1)))))
@@ -982,28 +982,28 @@ suite('QUIC Frame', function () {
   })
 
   suite('BLOCKED Frame', function () {
-    it('new BlockedFrame with StreamID(0)', function () {
-      let streamID = new StreamID(0)
+    it('new BlockedFrame with StreamID', function () {
+      let streamID = new StreamID(10)
       let blockedFrame = new BlockedFrame(streamID)
 
       strictEqual(blockedFrame.type, 5)
       let buf = toBuffer(blockedFrame)
       ok(buf.equals(bufferFromBytes([
         0x05,
-        0x00, 0x00, 0x00, 0x00
+        0x0a, 0x00, 0x00, 0x00
       ])))
       ok(buf.equals(toBuffer(BlockedFrame.fromBuffer(buf))))
     })
 
     it('parse with parseFrame', function () {
-      let streamID = new StreamID(0)
+      let streamID = new StreamID(10)
       let blockedFrame = new BlockedFrame(streamID)
 
       strictEqual(blockedFrame.type, 5)
       let buf = toBuffer(blockedFrame)
       ok(buf.equals(bufferFromBytes([
         0x05,
-        0x00, 0x00, 0x00, 0x00
+        0x0a, 0x00, 0x00, 0x00
       ])))
       ok(buf.equals(toBuffer(parseFrame(buf, new PacketNumber(1)))))
     })
