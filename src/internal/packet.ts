@@ -109,11 +109,11 @@ export abstract class Packet {
   }
 
   isReset (): boolean {
-    return this.flag === 0b00001010
+    return this instanceof ResetPacket
   }
 
   isNegotiation (): boolean {
-    return this.flag === 0b00001001
+    return this instanceof NegotiationPacket
   }
 
   isRegular (): boolean {

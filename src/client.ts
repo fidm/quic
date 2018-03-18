@@ -13,6 +13,7 @@ import {
   MaxReceivePacketSize,
   SocketAddress,
   SessionType,
+  getVersion,
   chooseVersion
 } from './internal/protocol'
 import {
@@ -35,6 +36,7 @@ export class Client extends Session {
   [kClientState]: ClientState
   constructor () {
     super(ConnectionID.random(), SessionType.CLIENT)
+    this[kVersion] = getVersion()
     this[kClientState] = new ClientState()
   }
 

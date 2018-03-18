@@ -190,11 +190,15 @@ export class StreamFrame extends Frame {
 
 /** AckRange representing a range for ACK. */
 export class AckRange {
-  firstNum: number
-  lastNum: number
+  first: number
+  last: number
   constructor (firstPacketNumberValue: number, lastPacketNumberValue: number) {
-    this.firstNum = firstPacketNumberValue // PacketNumber value
-    this.lastNum = lastPacketNumberValue
+    this.first = firstPacketNumberValue // PacketNumber value
+    this.last = lastPacketNumberValue
+  }
+
+  len (): number {
+    return this.last - this.first + 1
   }
 }
 
@@ -288,13 +292,13 @@ export class AckFrame extends Frame {
       return false
     }
 
-    if (this.ackRanges[0].lastNum !== this.largestAcked) {
+    if (this.ackRanges[0].last !== this.largestAcked) {
       return false
     }
 
     // check the validity of every single ACK range
     for (let ackRange of this.ackRanges) {
-      if (ackRange.firstNum > ackRange.lastNum || ackRange.firstNum <= 0) {
+      if (ackRange.first > ackRange.last || ackRange.first <= 0) {
         return false
       }
     }
@@ -302,10 +306,10 @@ export class AckFrame extends Frame {
     // check the consistency for ACK with multiple NACK ranges
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
       let lastAckRange = this.ackRanges[i - 1]
-      if (lastAckRange.firstNum <= this.ackRanges[i].firstNum) {
+      if (lastAckRange.first <= this.ackRanges[i].first) {
         return false
       }
-      if (lastAckRange.firstNum <= (this.ackRanges[i].lastNum + 1)) {
+      if (lastAckRange.first <= (this.ackRanges[i].last + 1)) {
         return false
       }
     }
@@ -320,7 +324,7 @@ export class AckFrame extends Frame {
     let numRanges = 0
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
       let lastAckRange = this.ackRanges[i - 1]
-      let gap = lastAckRange.firstNum - this.ackRanges[i].lastNum - 1
+      let gap = lastAckRange.first - this.ackRanges[i].last - 1
       let rangeLength = 1 + Math.floor(gap / 0xff)
 
       if (gap % 0xff === 0) rangeLength--
@@ -336,7 +340,7 @@ export class AckFrame extends Frame {
 
     if (this.hasMissingRanges()) {
       for (let ackRange of this.ackRanges) {
-        let rangeLength = ackRange.lastNum - ackRange.firstNum + 1
+        let rangeLength = ackRange.len()
         if (rangeLength > maxRangeLength) {
           maxRangeLength = rangeLength
         }
@@ -359,7 +363,7 @@ export class AckFrame extends Frame {
     if (this.hasMissingRanges()) {
       // TODO: this could be implemented as a binary search
       for (let ackRange of this.ackRanges) {
-        if (val >= ackRange.firstNum && val <= ackRange.lastNum) {
+        if (val >= ackRange.first && val <= ackRange.last) {
           return true
         }
       }
@@ -424,13 +428,13 @@ export class AckFrame extends Frame {
     if (!hasMissingRanges) {
       firstAckBlockLength = this.largestAcked - this.lowestAcked + 1
     } else {
-      if (this.largestAcked !== this.ackRanges[0].lastNum) {
+      if (this.largestAcked !== this.ackRanges[0].last) {
         throw new Error('largestAcked does not match ACK ranges')
       }
-      if (this.lowestAcked !== this.ackRanges[this.ackRanges.length - 1].firstNum) {
+      if (this.lowestAcked !== this.ackRanges[this.ackRanges.length - 1].first) {
         throw new Error('lowestAcked does not match ACK ranges')
       }
-      firstAckBlockLength = this.largestAcked - this.ackRanges[0].firstNum + 1
+      firstAckBlockLength = this.largestAcked - this.ackRanges[0].first + 1
       numRangesWritten++
     }
 
@@ -438,8 +442,8 @@ export class AckFrame extends Frame {
     bufv.writeUIntLE(firstAckBlockLength, bufv.v.start, missingNumberDeltaLen)
 
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
-      let length = this.ackRanges[i].lastNum - this.ackRanges[i].firstNum + 1
-      let gap = this.ackRanges[i - 1].firstNum - this.ackRanges[i].lastNum - 1
+      let length = this.ackRanges[i].len()
+      let gap = this.ackRanges[i - 1].first - this.ackRanges[i].last - 1
 
       let num = Math.floor(gap / 0xff) + 1
       if (gap % 0xff === 0) {
@@ -536,15 +540,15 @@ export class AckFrame extends Frame {
         ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
 
         if (inLongBlock) {
-          frame.ackRanges[frame.ackRanges.length - 1].firstNum -= gap + ackBlockLength
-          frame.ackRanges[frame.ackRanges.length - 1].lastNum -= gap
+          frame.ackRanges[frame.ackRanges.length - 1].first -= gap + ackBlockLength
+          frame.ackRanges[frame.ackRanges.length - 1].last -= gap
         } else {
           lastRangeComplete = false
           ackRange = new AckRange(
             0,
-            frame.ackRanges[frame.ackRanges.length - 1].firstNum - gap - 1
+            frame.ackRanges[frame.ackRanges.length - 1].first - gap - 1
           )
-          ackRange.firstNum = ackRange.lastNum - ackBlockLength + 1
+          ackRange.first = ackRange.last - ackBlockLength + 1
           frame.ackRanges.push(ackRange)
         }
 
@@ -559,7 +563,7 @@ export class AckFrame extends Frame {
       if (!lastRangeComplete) {
         frame.ackRanges = frame.ackRanges.slice(0, -1)
       }
-      frame.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].firstNum
+      frame.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].first
     } else {
       if (frame.largestAcked === 0) {
         frame.lowestAcked = 0

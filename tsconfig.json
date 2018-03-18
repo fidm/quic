@@ -30,7 +30,8 @@
     "debug",
     "node_modules",
     "bench",
-    "test",
-    "example"
+    "dist",
+    "example",
+    "test"
   ]
 }

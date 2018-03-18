@@ -85,7 +85,6 @@ export class Stream extends Duplex {
       this[kState].readQueue.push(frame)
     }
     if (frame.isFIN && !this[kState].remoteFIN) {
-      // TODO end stream
       this[kState].remoteFIN = true
       this[kState].readQueue.setEndOffset(frame.offset.valueOf())
     }
@@ -102,6 +101,7 @@ export class Stream extends Duplex {
       this[kState].writeOffset = offet.nextOffset(buf.length)
     }
     let streamFrame = new StreamFrame(this[kID], offet, buf, (shouldFin && this[kState].bufferList.length === 0))
+    if (streamFrame.isFIN) this[kState].localFIN = true
     this[kSession]._sendFrame(streamFrame, (err: any) => {
       if (err != null) return callback(err)
       if (this[kState].bufferList.length === 0) return callback()
@@ -111,7 +111,6 @@ export class Stream extends Duplex {
 
   _write (chunk: Buffer, _encoding: string, callback: (...args: any[]) => void): void {
     if (this[kState].localFIN) return callback(new QuicStreamError('QUIC_RST_ACKNOWLEDGEMENT'))
-    if (this[kState].remoteFIN) return callback(new QuicStreamError('QUIC_STREAM_CANCELLED'))
     if (!(chunk instanceof Buffer)) return callback(new Error('invalid data'))
     this[kState].bufferList.push(chunk)
     this._flushData(false, callback)
@@ -126,10 +125,11 @@ export class Stream extends Duplex {
     if (data != null) {
       if (this.push(data) && size > data.length) {
         this._read(size - data.length)
+        return
       }
     }
-    if (this[kState].readQueue.isEnd()) {
-      // TODO: maybe some data on flight
+    if (!this[kState].ended && this[kState].readQueue.isEnd()) {
+      this[kState].ended = true
       this.push(null)
     }
   }
@@ -138,6 +138,7 @@ export class Stream extends Duplex {
 class StreamState {
   localFIN: boolean
   remoteFIN: boolean
+  ended: boolean
   aborted: boolean
   finished: boolean
   bytesRead: number
@@ -146,8 +147,9 @@ class StreamState {
   bufferList: StreamDataList
   writeOffset: Offset
   constructor () {
-    this.localFIN = false
-    this.remoteFIN = false
+    this.localFIN = false // local endpoint will not send data
+    this.remoteFIN = false // remote endpoint should not send data
+    this.ended = false
     this.aborted = false
     this.finished = false
     this.bytesRead = 0

@@ -3,11 +3,11 @@
 //
 // **License:** MIT
 
-// node example/server.js
+// NODE_DEBUG=quic node example/server.js
 const ilog = require('ilog')
 const {
   Server
-} = require('../dist/index')
+} = require('..')
 
 const server = new Server()
 
@@ -20,20 +20,27 @@ server
       .on('ping', () => {
         ilog.info('ping')
       })
+      .on('error', (err) => {
+        err.class = `session: ${session.id}`
+        ilog.error(err)
+      })
       .on('stream', (stream) => {
         ilog.info(`stream: ${stream.id}`)
 
         stream
+          .on('error', (err) => {
+            err.class = `stream: ${stream.id}`
+            ilog.error(err)
+          })
           .on('data', (data) => {
-            // ilog.info(data.toString())
             stream.write(data)
           })
           .on('end', () => {
-            ilog.info('server end')
+            ilog.info('stream end')
             stream.end()
           })
           .on('finish', () => {
-            ilog.info('server finish')
+            ilog.info('stream finish')
           })
       })
   })

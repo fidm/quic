@@ -81,7 +81,6 @@ export class Session extends EventEmitter {
     return this[kType] === SessionType.CLIENT
   }
 
-  // true if the Http2Session has been destroyed
   get destroyed (): boolean {
     return this[kState].destroyed
   }
@@ -193,7 +192,7 @@ export class Session extends EventEmitter {
 
   goaway (_code: number, _lastStreamID: StreamID, _opaqueData: Buffer) {}
 
-  ping () {
+  ping (): Promise<any> {
     return new Promise((resolve, reject) => {
       this._sendFrame(new PingFrame(), (err: any) => {
         if (err != null) reject(err)

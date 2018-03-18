@@ -722,14 +722,14 @@ suite('QUIC Frame', function () {
               ackRanges[300 - i] = new AckRange(3 * i, 3 * i + 1)
             }
             let frame = new AckFrame()
-            frame.largestAcked = ackRanges[0].lastNum
-            frame.lowestAcked = ackRanges[ackRanges.length - 1].firstNum
+            frame.largestAcked = ackRanges[0].last
+            frame.lowestAcked = ackRanges[ackRanges.length - 1].first
             frame.ackRanges = ackRanges
 
             let buf = toBuffer(frame)
             let ackFrame = AckFrame.fromBuffer(buf)
             ok(ackFrame.largestAcked === frame.largestAcked)
-            ok(ackFrame.lowestAcked === ackRanges[254].firstNum)
+            ok(ackFrame.lowestAcked === ackRanges[254].first)
             strictEqual(ackFrame.ackRanges.length, 0xff)
             strictEqual(ackFrame.validateAckRanges(), true)
           })
@@ -741,14 +741,14 @@ suite('QUIC Frame', function () {
               ackRanges[100 - i] = new AckRange(1000 * i, 1000 * i + 1)
             }
             let frame = new AckFrame()
-            frame.largestAcked = ackRanges[0].lastNum
-            frame.lowestAcked = ackRanges[ackRanges.length - 1].firstNum
+            frame.largestAcked = ackRanges[0].last
+            frame.lowestAcked = ackRanges[ackRanges.length - 1].first
             frame.ackRanges = ackRanges
 
             let buf = toBuffer(frame)
             let ackFrame = AckFrame.fromBuffer(buf)
             ok(ackFrame.largestAcked === frame.largestAcked)
-            ok(ackFrame.lowestAcked === ackRanges[ackFrame.ackRanges.length - 1].firstNum)
+            ok(ackFrame.lowestAcked === ackRanges[ackFrame.ackRanges.length - 1].first)
             strictEqual(ackFrame.ackRanges.length, 256 / 4)
             strictEqual(ackFrame.validateAckRanges(), true)
           })
@@ -760,14 +760,14 @@ suite('QUIC Frame', function () {
               new AckRange(1, 2)
             ]
             let frame = new AckFrame()
-            frame.largestAcked = ackRanges[0].lastNum
-            frame.lowestAcked = ackRanges[ackRanges.length - 1].firstNum
+            frame.largestAcked = ackRanges[0].last
+            frame.lowestAcked = ackRanges[ackRanges.length - 1].first
             frame.ackRanges = ackRanges
 
             let buf = toBuffer(frame)
             let ackFrame = AckFrame.fromBuffer(buf)
             ok(ackFrame.largestAcked === frame.largestAcked)
-            ok(ackFrame.lowestAcked === ackRanges[ackFrame.ackRanges.length - 1].firstNum)
+            ok(ackFrame.lowestAcked === ackRanges[ackFrame.ackRanges.length - 1].first)
             strictEqual(ackFrame.ackRanges.length, 2)
             strictEqual(ackFrame.validateAckRanges(), true)
           })
