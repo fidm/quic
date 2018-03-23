@@ -8,13 +8,13 @@ import { QuicStreamError } from './internal/error'
 import {
   Offset,
   StreamID,
-  MaxStreamBufferSize
+  MaxStreamBufferSize,
 } from './internal/protocol'
 import { StreamFrame, RstStreamFrame } from './internal/frame'
 import {
   kID,
   kSession,
-  kState
+  kState,
 } from './internal/symbol'
 
 import { Session } from './session'
@@ -64,17 +64,22 @@ export class Stream extends Duplex {
 
   // get destroyed (): boolean {}
 
-  close (_code: any): void {}
+  close (_code: any): void {
+    return
+  }
 
   // Reset closes the stream with an error.
   reset (err: Error): Promise<number> {
     this[kState].localFIN = true
-    let offset = this[kState].writeOffset
-    let rstStreamFrame = new RstStreamFrame(this[kID], offset, QuicStreamError.fromError(err))
+    const offset = this[kState].writeOffset
+    const rstStreamFrame = new RstStreamFrame(this[kID], offset, QuicStreamError.fromError(err))
     return new Promise((resolve, reject) => {
-      this[kSession]._sendFrame(rstStreamFrame, (err) => {
-        if (err != null) reject(err)
-        else resolve(offset.valueOf())
+      this[kSession]._sendFrame(rstStreamFrame, (e) => {
+        if (e != null) {
+          reject(e)
+        } else {
+          resolve(offset.valueOf())
+        }
       })
     })
   }
@@ -93,25 +98,37 @@ export class Stream extends Duplex {
   }
 
   _flushData (shouldFin: boolean, callback: (...args: any[]) => void): void {
-    let buf = this[kState].bufferList.read(MaxStreamBufferSize)
-    if (buf == null && !shouldFin) return callback()
+    const buf = this[kState].bufferList.read(MaxStreamBufferSize)
+    if (buf == null && !shouldFin) {
+      return callback()
+    }
 
-    let offet = this[kState].writeOffset
+    const offet = this[kState].writeOffset
     if (buf != null) {
       this[kState].writeOffset = offet.nextOffset(buf.length)
     }
-    let streamFrame = new StreamFrame(this[kID], offet, buf, (shouldFin && this[kState].bufferList.length === 0))
-    if (streamFrame.isFIN) this[kState].localFIN = true
+    const streamFrame = new StreamFrame(this[kID], offet, buf, (shouldFin && this[kState].bufferList.length === 0))
+    if (streamFrame.isFIN) {
+      this[kState].localFIN = true
+    }
     this[kSession]._sendFrame(streamFrame, (err: any) => {
-      if (err != null) return callback(err)
-      if (this[kState].bufferList.length === 0) return callback()
+      if (err != null) {
+        return callback(err)
+      }
+      if (this[kState].bufferList.length === 0) {
+        return callback()
+      }
       this._flushData(shouldFin, callback)
     })
   }
 
   _write (chunk: Buffer, _encoding: string, callback: (...args: any[]) => void): void {
-    if (this[kState].localFIN) return callback(new QuicStreamError('QUIC_RST_ACKNOWLEDGEMENT'))
-    if (!(chunk instanceof Buffer)) return callback(new Error('invalid data'))
+    if (this[kState].localFIN) {
+      return callback(new QuicStreamError('QUIC_RST_ACKNOWLEDGEMENT'))
+    }
+    if (!(chunk instanceof Buffer)) {
+      return callback(new Error('invalid data'))
+    }
     this[kState].bufferList.push(chunk)
     this._flushData(false, callback)
   }
@@ -121,7 +138,7 @@ export class Stream extends Duplex {
   }
 
   _read (size: number = 0) {
-    let data = this[kState].readQueue.read()
+    const data = this[kState].readQueue.read()
     if (data != null) {
       if (this.push(data) && size > data.length) {
         this._read(size - data.length)
@@ -180,9 +197,9 @@ class StreamDataList {
   }
 
   push (buf: Buffer): void {
-    let entry = new StreamDataEntry(buf, null)
+    const entry = new StreamDataEntry(buf, null)
 
-    if (this.tail) {
+    if (this.tail != null) {
       this.tail.next = entry
     } else {
       this.head = entry
@@ -192,8 +209,10 @@ class StreamDataList {
   }
 
   shift () {
-    if (!this.head) return null
-    let ret = this.head.data
+    if (this.head == null) {
+      return null
+    }
+    const ret = this.head.data
     if (this.length === 1) {
       this.head = this.tail = null
     } else {
@@ -204,7 +223,9 @@ class StreamDataList {
   }
 
   read (n: number): Buffer | null {
-    if (!this.head) return null
+    if (this.head == null) {
+      return null
+    }
 
     let ret = this.head.data
     if (ret.length > n) {
@@ -250,8 +271,8 @@ class StreamFramesSorter {
    * @param {StreamFrame}
    */
   push (frame: StreamFrame) {
-    let entry = new StreamFrameEntry(frame, null)
-    let offset = entry.offset
+    const entry = new StreamFrameEntry(frame, null)
+    const offset = entry.offset
 
     if (this.head == null) {
       this.head = entry
@@ -279,7 +300,7 @@ class StreamFramesSorter {
     let data = null
     if (this.head != null && this.readOffset === this.head.offset) {
       data = this.head.data
-      this.readOffset = this.head.offset + (data ? data.length : 0)
+      this.readOffset = this.head.offset + (data != null ? data.length : 0)
       this.head = this.head.next
     }
     return data

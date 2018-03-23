@@ -15,14 +15,14 @@ import {
   kSocket,
   kState,
   kVersion,
-  kServer
+  kServer,
 } from './internal/symbol'
 import {
   MaxReceivePacketSize,
   SocketAddress,
   SessionType,
   ConnectionID,
-  isSupportedVersion
+  isSupportedVersion,
 } from './internal/protocol'
 
 import { Session } from './session'
@@ -73,10 +73,12 @@ export class Server extends EventEmitter {
     return { port: this.localPort, family: this.localFamily, address: this.localAddress }
   }
 
-  async listen (port: number, address: string) {
-    if (this[kSocket]) throw new Error('Server listening')
+  async listen (port: number, address: string = 'localhost') {
+    if (this[kSocket] != null) {
+      throw new Error('Server listening')
+    }
 
-    let addr = await lookup(address || 'localhost')
+    const addr = await lookup(address)
     debug(`server listen: ${address}, ${port}`, addr)
 
     const socket = this[kSocket] = createSocket(addr.family === 4 ? 'udp4' : 'udp6')
@@ -85,14 +87,14 @@ export class Server extends EventEmitter {
       .on('close', () => serverOnClose(this))
       .on('message', (msg: Buffer, rinfo: AddressInfo) => serverOnMessage(this, socket, msg, rinfo))
 
-    let res = new Promise((resolve, reject) => {
+    const res = new Promise((resolve, reject) => {
       socket.once('listening', () => {
         socket.removeListener('error', reject)
 
-        let addr = socket.address()
-        this.localFamily = addr.family
-        this.localAddress = addr.address
-        this.localPort = addr.port
+        const localAddr = socket.address()
+        this.localFamily = localAddr.family
+        this.localAddress = localAddr.address
+        this.localPort = localAddr.port
         this.listening = true
 
         resolve()
@@ -101,24 +103,30 @@ export class Server extends EventEmitter {
       socket.once('error', reject)
     })
     // Can't support cluster
-    socket.bind({ port: port, address: addr.address, exclusive: true })
+    socket.bind({ port, address: addr.address, exclusive: true })
     return res
   }
 
-  close (_err: any) {}
+  close (_err: any) {
+    return
+  }
 
   getConnections () {
     return Promise.resolve(this.conns.size)
   }
 
-  ref () {}
+  ref () {
+    return
+  }
 
-  unref () {}
+  unref () {
+    return
+  }
 }
 
 function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: AddressInfo) {
   debug(`server message: ${msg.length} bytes`, rinfo)
-  if (!msg.length) {
+  if (msg.length === 0) {
     return
   }
   // The packet size should not exceed protocol.MaxReceivePacketSize bytes
@@ -128,10 +136,10 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     msg = msg.slice(0, MaxReceivePacketSize)
   }
 
-  let senderAddr = new SocketAddress(rinfo)
-  let rcvTime = Date.now()
+  const senderAddr = new SocketAddress(rinfo)
+  const rcvTime = Date.now()
 
-  let bufv = Visitor.wrap(msg)
+  const bufv = Visitor.wrap(msg)
   let packet = null
   try {
     packet = parsePacket(bufv, SessionType.CLIENT, '')
@@ -141,10 +149,10 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     return
   }
 
-  let connectionID = packet.connectionID.valueOf()
+  const connectionID = packet.connectionID.valueOf()
   let session = server.conns.get(connectionID)
-  let newSession = !session
-  if (!session) {
+  const newSession = session == null
+  if (session == null) {
     session = new ServerSession(packet.connectionID, socket, server)
     server.conns.set(connectionID, session)
   }
@@ -156,13 +164,13 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     }
     // check if the remote address and the connection ID match
     // otherwise this might be an attacker trying to inject a PUBLIC_RESET to kill the connection
-    let remoteAddr = session[kState].remoteAddr
-    if (remoteAddr && !remoteAddr.equals(senderAddr)) {
+    const remoteAddr = session[kState].remoteAddr
+    if (remoteAddr !== null && !remoteAddr.equals(senderAddr)) {
       debug(`Received a spoofed Public Reset. Ignoring.`)
       return
     }
 
-    let packetNumber = (packet as ResetPacket).packetNumber
+    const packetNumber = (packet as ResetPacket).packetNumber
     session._closeRemote(new Error(`Received Public Reset, rejected packet number: ${packetNumber}.`))
     return
   }
@@ -183,12 +191,12 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
   }
 
   if (!session[kState].versionNegotiated) {
-    let version = (packet as RegularPacket).version
-    if (version) {
+    const version = (packet as RegularPacket).version
+    if (version !== '') {
       if (!isSupportedVersion(version)) {
-        let negotiationPacket = NegotiationPacket.fromConnectionID(session[kID])
+        const negotiationPacket = NegotiationPacket.fromConnectionID(session[kID])
         session._sendPacket(negotiationPacket, (err) => {
-          if (err != null && session) {
+          if (err != null && session != null) {
             session._closeRemote(err)
           }
         })
@@ -204,5 +212,5 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
 }
 
 function serverOnClose (_server: Server) {
-
+  return
 }

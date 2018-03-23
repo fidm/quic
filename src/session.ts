@@ -10,9 +10,9 @@ import {
   StreamID,
   PacketNumber,
   ConnectionID,
-  SocketAddress
+  SocketAddress,
  } from './internal/protocol'
- import {
+import {
   kID,
   kStreams,
   kSocket,
@@ -21,19 +21,19 @@ import {
   kVersion,
   kACKHandler,
   kNextStreamID,
-  kNextPacketNumber
+  kNextPacketNumber,
 } from './internal/symbol'
 import {
   Frame,
   PingFrame,
   StreamFrame,
   AckFrame,
-  ConnectionCloseFrame
+  ConnectionCloseFrame,
 } from './internal/frame'
 import { Packet, RegularPacket } from './internal/packet'
 
 import { Stream } from './stream'
-import { BufferVisitor, toBuffer } from './internal/common';
+import { BufferVisitor, toBuffer } from './internal/common'
 
 //
 // *************** Session ***************
@@ -87,26 +87,26 @@ export class Session extends EventEmitter {
 
   get localAddr () {
     return {
-      port: this[kState].localPort,
-      family: this[kState].localFamily,
       address: this[kState].localAddress,
-      socketAddress: this[kState].localAddr
+      family: this[kState].localFamily,
+      port: this[kState].localPort,
+      socketAddress: this[kState].localAddr,
     }
   }
 
   get remoteAddr () {
     return {
-      port: this[kState].remotePort,
-      family: this[kState].remoteFamily,
       address: this[kState].remoteAddress,
-      socketAddress: this[kState].remoteAddr
+      family: this[kState].remoteFamily,
+      port: this[kState].remotePort,
+      socketAddress: this[kState].remoteAddr,
     }
   }
 
   _sendFrame (frame: Frame, callback: (...args: any[]) => void) {
-    let packetNumber = this[kNextPacketNumber]
+    const packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
-    let regularPacket = new RegularPacket(this[kID], packetNumber)
+    const regularPacket = new RegularPacket(this[kID], packetNumber)
     regularPacket.addFrames(frame)
     this._sendPacket(regularPacket, callback)
   }
@@ -117,21 +117,23 @@ export class Session extends EventEmitter {
       (packet as RegularPacket).setVersion(this[kVersion])
     }
 
-    let buf = toBuffer(packet)
-    let socket = this[kSocket]
-    if (!socket) return callback(new Error('UDP not connect'))
+    const buf = toBuffer(packet)
+    const socket = this[kSocket]
+    if (socket == null) {
+      return callback(new Error('UDP not connect'))
+    }
     socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
   }
 
   _handleRegularPacket (packet: RegularPacket, rcvTime: number, _bufv: BufferVisitor) {
-    if (this.isClient && packet.nonce) {
+    if (this.isClient && packet.nonce != null) {
       // TODO
       // this.cryptoSetup.SetDiversificationNonce(packet.nonce)
     }
 
     this[kState].lastNetworkActivityTime = rcvTime
     this[kState].keepAlivePingSent = false
-    for (let frame of packet.frames) {
+    for (const frame of packet.frames) {
       switch (frame.name) {
         case 'STREAM':
           this._handleStreamFrame(frame as StreamFrame)
@@ -167,9 +169,9 @@ export class Session extends EventEmitter {
    * @param {StreamFrame} frame
    */
   _handleStreamFrame (frame: StreamFrame) {
-    let streamID = frame.streamID.valueOf()
+    const streamID = frame.streamID.valueOf()
     let stream = this[kStreams].get(streamID)
-    if (!stream) {
+    if (stream == null) {
       stream = new Stream(frame.streamID, this, {})
       this[kStreams].set(streamID, stream)
       this.emit('stream', stream)
@@ -183,38 +185,57 @@ export class Session extends EventEmitter {
   }
 
   request (options: any) {
-    let streamID = this[kNextStreamID]
+    const streamID = this[kNextStreamID]
     this[kNextStreamID] = streamID.nextID()
-    let stream = new Stream(streamID, this, options || {})
+    const stream = new Stream(streamID, this, (options == null ? {} : options))
     this[kStreams].set(streamID.valueOf(), stream)
     return stream
   }
 
-  goaway (_code: number, _lastStreamID: StreamID, _opaqueData: Buffer) {}
+  goaway (_code: number, _lastStreamID: StreamID, _opaqueData: Buffer) {
+    return
+  }
 
   ping (): Promise<any> {
     return new Promise((resolve, reject) => {
       this._sendFrame(new PingFrame(), (err: any) => {
-        if (err != null) reject(err)
-        else resolve()
+        if (err != null) {
+          reject(err)
+        } else {
+          resolve()
+        }
       })
     })
   }
 
-  setTimeout (_msecs: number) {}
+  setTimeout (_msecs: number) {
+    return
+  }
 
   // Graceful or immediate shutdown of the Session. Graceful shutdown
   // is only supported on the server-side
-  close (_err: any) {}
+  close (_err: any) {
+    return
+  }
 
-  _closeRemote (_err: any) {}
-  _closeLocal (_err: any) {}
+  _closeRemote (_err: any) {
+    return
+  }
+  _closeLocal (_err: any) {
+    return
+  }
 
-  destroy () {}
+  destroy () {
+    return
+  }
 
-  ref () {}
+  ref () {
+    return
+  }
 
-  unref () {}
+  unref () {
+    return
+  }
 }
 
 export class SessionState {
@@ -264,5 +285,7 @@ export class SessionState {
 }
 
 export class ACKHandler {
-  ack (_val: any) {}
+  ack (_val: any) {
+    return
+  }
 }

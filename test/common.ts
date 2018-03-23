@@ -9,12 +9,17 @@ import { ok, strictEqual } from 'assert'
 import { Visitor, BufferVisitor, Float16MaxValue, readUFloat16, writeUFloat16 } from '../src/internal/common'
 
 export function bufferFromBytes (array: any): BufferVisitor {
-  let bytes = []
-  if (!Array.isArray(array)) array = [array]
-  for (let val of array) {
-    if (typeof val !== 'string') bytes.push(val)
-    else {
-      for (let byte of Buffer.from(val, 'utf8').values()) bytes.push(byte)
+  const bytes = []
+  if (!Array.isArray(array)) {
+    array = [array]
+  }
+  for (const val of array) {
+    if (typeof val !== 'string') {
+      bytes.push(val)
+    } else {
+      for (const byte of Buffer.from(val, 'utf8').values()) {
+        bytes.push(byte)
+      }
     }
   }
   return Visitor.wrap(Buffer.from(bytes))
@@ -30,7 +35,7 @@ suite('common', function () {
   })
 
   it('Visitor', function () {
-    let v = new Visitor(0)
+    const v = new Visitor(0)
     strictEqual(v.start, 0)
     strictEqual(v.end, 0)
     v.walk(10)
@@ -55,19 +60,19 @@ suite('common', function () {
 
   suite('UFloat16', function () {
     function uint16Buf (val) {
-      let buf = Buffer.alloc(2)
+      const buf = Buffer.alloc(2)
       buf.writeUInt16LE(val, 0)
       return buf
     }
 
     it('Float16MaxValue, readUFloat16, writeUFloat16', function () {
-      let buf = Buffer.from([0xff, 0xff])
+      const buf = Buffer.from([0xff, 0xff])
       strictEqual(readUFloat16(buf), Float16MaxValue)
       ok(writeUFloat16(Buffer.alloc(2), readUFloat16(buf), 0).equals(buf))
     })
 
     it('writeUFloat16', function () {
-      let testCases = [
+      const testCases = [
         [0, 0],
         [1, 1],
         [2, 2],
@@ -127,16 +132,15 @@ suite('common', function () {
         [0x3FFC0000001, 0xFFFF],
         [0x3FFFFFFFFFF, 0xFFFF],
         [0x40000000000, 0xFFFF],
-        [0xFFFFFFFFFFFFFFFF, 0xFFFF]
-      ]
+        [0xFFFFFFFFFFFFFFFF, 0xFFFF]]
 
-      for (let data of testCases) {
+      for (const data of testCases) {
         ok(writeUFloat16(Buffer.alloc(2), data[0], 0).equals(uint16Buf(data[1])))
       }
     })
 
     it('readUFloat16', function () {
-      let testCases = [
+      const testCases = [
         [0, 0],
         [1, 1],
         [2, 2],
@@ -176,10 +180,10 @@ suite('common', function () {
         [0x20040000000, 0xF801],
         // Transition into the max value.
         [0x3FF80000000, 0xFFFE],
-        [0x3FFC0000000, 0xFFFF]
+        [0x3FFC0000000, 0xFFFF],
       ]
 
-      for (let data of testCases) {
+      for (const data of testCases) {
         strictEqual(readUFloat16(uint16Buf(data[1])), data[0])
       }
     })

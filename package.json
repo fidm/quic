@@ -30,8 +30,8 @@
     "typescript": "^2.7.2"
   },
   "scripts": {
-    "test": "tman -r ts-node/register",
-    "lint": "tslint 'src/**/*.ts' -t stylish",
+    "test": "tman -r ts-node/register 'test/**/*.ts'",
+    "lint": "tslint -p tsconfig.json -t stylish 'src/**/*.ts' 'test/**/*.ts'",
     "build": "rm -rf dist && tsc"
   },
   "files": [

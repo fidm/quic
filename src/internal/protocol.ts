@@ -15,12 +15,12 @@ const QUIC_VERSIONS = ['Q039']
 
 export enum SessionType {
   SERVER = 0,
-  CLIENT = 1
+  CLIENT = 1,
 }
 
 export enum FamilyType {
   IPv4 = 'IPv4',
-  IPv6 = 'IPv6'
+  IPv6 = 'IPv6',
 }
 
 // MaxPacketSize is the maximum packet size, including the public header, that we use for sending packets
@@ -40,7 +40,8 @@ export enum FamilyType {
 // session queues for later until it sends a public reset.
 // const MaxUndecryptablePackets = exports.MaxUndecryptablePackets = 10
 
-// PublicResetTimeout is the time to wait before sending a Public Reset when receiving too many undecryptable packets during the handshake
+// PublicResetTimeout is the time to wait before sending a Public Reset when receiving
+// too many undecryptable packets during the handshake
 // const PublicResetTimeout = exports.PublicResetTimeout = 500 // ms
 
 // AckSendDelay is the maximum delay that can be applied to an ACK for a retransmittable packet
@@ -90,7 +91,8 @@ export const MaxOffset = Number.MAX_SAFE_INTEGER
 // ethernet's max size, minus the IP and UDP headers. IPv6 has a 40 byte header,
 // UDP adds an additional 8 bytes.  This is a total overhead of 48 bytes.
 // Ethernet's max packet size is 1500 bytes,  1500 - 48 = 1452.
-// the current QUIC implementation uses a 1350-byte maximum QUIC packet size for IPv6, 1370 for IPv4. Both sizes are without IP and UDP overhead.
+// the current QUIC implementation uses a 1350-byte maximum QUIC packet size for IPv6,
+// 1370 for IPv4. Both sizes are without IP and UDP overhead.
 export const MaxReceivePacketSize = 1350
 
 export const MaxStreamBufferSize = 1280 // todo
@@ -117,8 +119,10 @@ export function getVersions (): string[] {
  * Chooses the best version in the overlap of ours and theirs.
  */
 export function chooseVersion (theirs: string[]): string {
-  for (let v of theirs) {
-    if (isSupportedVersion(v)) return v
+  for (const v of theirs) {
+    if (isSupportedVersion(v)) {
+      return v
+    }
   }
   return ''
 }
@@ -132,33 +136,41 @@ export function isSupportedVersion (version: string): boolean {
 
 /** Protocol representing a base protocol. */
 export abstract class Protocol {
+  static fromBuffer (_bufv: BufferVisitor, _len?: number): Protocol {
+    throw new Error(`class method "fromBuffer" is not implemented`)
+  }
+
   protected readonly [kVal]: any
   constructor (val: any) {
     this[kVal] = val
   }
 
   abstract equals (other: Protocol): boolean
-
   abstract byteLen (arg?: any): number
-
   abstract writeTo (bufv: BufferVisitor, arg?: any): BufferVisitor
-
   abstract valueOf (): any
-
   abstract toString (): string
 
   [inspect.custom] (_depth: any, _options: any): string {
     return `<${this.constructor.name} ${this.toString()}>`
-  }
-
-  static fromBuffer (_bufv: BufferVisitor, _len?: number): Protocol {
-    throw new Error(`class method "fromBuffer" is not implemented`)
   }
 }
 
 const ConnectionIDReg = /^[0-9a-f]{16}$/
 /** ConnectionID representing a connectionID. */
 export class ConnectionID extends Protocol {
+  static fromBuffer (bufv: BufferVisitor): ConnectionID {
+    bufv.v.walk(8)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INTERNAL_ERROR')
+    }
+    return new ConnectionID(bufv.toString('hex', bufv.v.start, bufv.v.end))
+  }
+
+  static random (): ConnectionID {
+    return new ConnectionID(randomBytes(8).toString('hex'))
+  }
+
   constructor (id: string) {
     if (!ConnectionIDReg.test(id)) {
       throw new Error('invalid Connection ID')
@@ -190,23 +202,31 @@ export class ConnectionID extends Protocol {
   toString (): string {
     return this[kVal]
   }
-
-  static fromBuffer (bufv: BufferVisitor): ConnectionID {
-    bufv.v.walk(8)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-    return new ConnectionID(bufv.toString('hex', bufv.v.start, bufv.v.end))
-  }
-
-  static random (): ConnectionID {
-    return new ConnectionID(randomBytes(8).toString('hex'))
-  }
 }
 
 /** PacketNumber representing a packetNumber. */
 export class PacketNumber extends Protocol {
-  // The lower 8, 16, 32, or 48 bits of the packet number, based on which FLAG_?BYTE_SEQUENCE_NUMBER flag is set in the public flags.
-  // Each Regular Packet (as opposed to the Special public reset and version negotiation packets) is assigned a packet number by the sender.
-  // The first packet sent by an endpoint shall have a packet number of 1, and each subsequent packet shall have a packet number one larger than that of the previous packet.
+  // The lower 8, 16, 32, or 48 bits of the packet number, based on which
+  // FLAG_?BYTE_SEQUENCE_NUMBER flag is set in the public flags.
+  // Each Regular Packet (as opposed to the Special public reset and version
+  // negotiation packets) is assigned a packet number by the sender.
+  // The first packet sent by an endpoint shall have a packet number of 1, and
+  // each subsequent packet shall have a packet number one larger than that of the previous packet.
+  static flagToByteLen (flagBits: number): number {
+    if ((flagBits & 0b11) !== flagBits) {
+      throw new Error('invalid flagBits')
+    }
+    return flagBits > 0 ? (flagBits * 2) : 1
+  }
+
+  static fromBuffer (bufv: BufferVisitor, len: number): PacketNumber {
+    bufv.v.walk(len)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INTERNAL_ERROR')
+    }
+    return new PacketNumber(bufv.readUIntLE(bufv.v.start, len, true))
+  }
+
   constructor (val: number) {
     if (!Number.isInteger(val) || val < 1 || val > 0xffffffffffff) {
       throw new Error(`invalid PacketNumber val ${val}`)
@@ -220,7 +240,7 @@ export class PacketNumber extends Protocol {
   }
 
   nextNumber (): PacketNumber {
-    let value = this[kVal] + 1
+    const value = this[kVal] + 1
     return new PacketNumber(value <= 0xffffffffffff ? value : 1)
   }
 
@@ -233,8 +253,10 @@ export class PacketNumber extends Protocol {
   }
 
   flagBits (): number {
-    let byteLen = this.byteLen()
-    if (byteLen === 1) return 0
+    const byteLen = this.byteLen()
+    if (byteLen === 1) {
+      return 0
+    }
     return byteLen / 2
   }
 
@@ -244,16 +266,20 @@ export class PacketNumber extends Protocol {
 
   byteLen (isFull: boolean = false): number {
     if (!isFull) {
-      let value = this[kVal]
-      if (value <= 0xff) return 1
-      else if (value <= 0xffff) return 2
-      else if (value <= 0xffffffff) return 4
+      const value = this[kVal]
+      if (value <= 0xff) {
+        return 1
+      } else if (value <= 0xffff) {
+        return 2
+      } else if (value <= 0xffffffff) {
+        return 4
+      }
     }
     return 6
   }
 
   writeTo (bufv: BufferVisitor, isFull: boolean = false): BufferVisitor {
-    let len = isFull ? 6 : this.byteLen()
+    const len = isFull ? 6 : this.byteLen()
     bufv.v.walk(len)
     bufv.writeUIntLE(this[kVal], bufv.v.start, len, true)
     return bufv
@@ -262,23 +288,32 @@ export class PacketNumber extends Protocol {
   toString (): string {
     return String(this[kVal])
   }
-
-  static flagToByteLen (flagBits: number): number {
-    if ((flagBits & 0b11) !== flagBits) throw new Error('invalid flagBits')
-    return flagBits ? (flagBits * 2) : 1
-  }
-
-  static fromBuffer (bufv: BufferVisitor, len: number): PacketNumber {
-    bufv.v.walk(len)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-    return new PacketNumber(bufv.readUIntLE(bufv.v.start, len, true))
-  }
 }
 
 /** StreamID representing a streamID. */
-// the Stream-ID must be even if the server initiates the stream, and odd if the client initiates the stream.
-// 0 is not a valid Stream-ID. Stream 1 is reserved for the crypto handshake, which should be the first client-initiated stream.
 export class StreamID extends Protocol {
+  // the Stream-ID must be even if the server initiates the stream, and odd if the client initiates the stream.
+  // 0 is not a valid Stream-ID. Stream 1 is reserved for the crypto handshake,
+  // which should be the first client-initiated stream.
+
+  /**
+   * 2 bits -> 8/8, 16/8, 24/8, 32/8
+   */
+  static flagToByteLen (flagBits: number): number {
+    if ((flagBits & 0b11) !== flagBits) {
+      throw new Error('invalid flagBits')
+    }
+    return flagBits + 1
+  }
+
+  static fromBuffer (bufv: BufferVisitor, len: number): StreamID {
+    bufv.v.walk(len)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INVALID_STREAM_DATA')
+    }
+    return new StreamID(bufv.readUIntLE(bufv.v.start, len, true))
+  }
+
   constructor (id: number) {
     if (!Number.isInteger(id) || id < 1 || id > 0xffffffff) {
       throw new Error(`invalid Stream ID ${id}`)
@@ -295,7 +330,7 @@ export class StreamID extends Protocol {
   }
 
   nextID (): StreamID {
-    let value = this[kVal] + 2
+    const value = this[kVal] + 2
     return new StreamID(value <= 0xffffffff ? value : (value - 0xffffffff))
   }
 
@@ -305,16 +340,20 @@ export class StreamID extends Protocol {
 
   byteLen (isFull: boolean = false): number {
     if (!isFull) {
-      let value = this[kVal]
-      if (value <= 0xff) return 1
-      else if (value <= 0xffff) return 2
-      else if (value <= 0xffffff) return 3
+      const value = this[kVal]
+      if (value <= 0xff) {
+        return 1
+      } else if (value <= 0xffff) {
+        return 2
+      } else if (value <= 0xffffff) {
+        return 3
+      }
     }
     return 4
   }
 
   writeTo (bufv: BufferVisitor, isFull: boolean = false): BufferVisitor {
-    let len = isFull ? 4 : this.byteLen()
+    const len = isFull ? 4 : this.byteLen()
     bufv.v.walk(len)
     bufv.writeUIntLE(this[kVal], bufv.v.start, len, true)
     return bufv
@@ -323,24 +362,28 @@ export class StreamID extends Protocol {
   toString (): string {
     return String(this[kVal])
   }
-
-  /**
-   * 2 bits -> 8/8, 16/8, 24/8, 32/8
-   */
-  static flagToByteLen (flagBits: number): number {
-    if ((flagBits & 0b11) !== flagBits) throw new Error('invalid flagBits')
-    return flagBits + 1
-  }
-
-  static fromBuffer (bufv: BufferVisitor, len: number): StreamID {
-    bufv.v.walk(len)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_STREAM_DATA')
-    return new StreamID(bufv.readUIntLE(bufv.v.start, len, true))
-  }
 }
 
 /** Offset representing a data offset. */
 export class Offset extends Protocol {
+  /**
+   * 3 bits -> 0, 16/8, 24/8, 32/8, 40/8, 48/8, 56/8, 64/8
+   */
+  static flagToByteLen (flagBits: number): number {
+    if ((flagBits & 0b111) !== flagBits) {
+      throw new Error('invalid flagBits')
+    }
+    return flagBits > 0 ? (flagBits + 1) : 0
+  }
+
+  static fromBuffer (bufv: BufferVisitor, len: number): Offset {
+    bufv.v.walk(len)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INTERNAL_ERROR')
+    }
+    return new Offset(len > 0 ? bufv.readUIntLE(bufv.v.start, len, true) : 0)
+  }
+
   constructor (offset: number) {
     if (!Number.isInteger(offset) || offset < 0 || offset > MaxOffset) {
       throw new Error(`invalid Offset ${offset}`)
@@ -358,13 +401,20 @@ export class Offset extends Protocol {
 
   byteLen (isFull: boolean = false): number {
     if (!isFull) {
-      let value = this[kVal]
-      if (value === 0) return 0
-      else if (value <= 0xffff) return 2
-      else if (value <= 0xffffff) return 3
-      else if (value <= 0xffffffff) return 4
-      else if (value <= 0xffffffffff) return 5
-      else if (value <= 0xffffffffffff) return 6
+      const value = this[kVal]
+      if (value === 0) {
+        return 0
+      } else if (value <= 0xffff) {
+        return 2
+      } else if (value <= 0xffffff) {
+        return 3
+      } else if (value <= 0xffffffff) {
+        return 4
+      } else if (value <= 0xffffffffff) {
+        return 5
+      } else if (value <= 0xffffffffffff) {
+        return 6
+      }
       return 7
     }
     return 8
@@ -374,13 +424,15 @@ export class Offset extends Protocol {
    * 0, 16/8, 24/8, 32/8, 40/8, 48/8, 56/8, 64/8 -> 3 bits
    */
   flagBits (): number {
-    let byteLen = this.byteLen()
-    if (byteLen === 0) return 0
-    return (byteLen - 1) || 1
+    const byteLen = this.byteLen()
+    if (byteLen === 0) {
+      return 0
+    }
+    return byteLen > 1 ? (byteLen - 1) : 1
   }
 
   writeTo (bufv: BufferVisitor, isFull: boolean = false): BufferVisitor {
-    let len = isFull ? 8 : this.byteLen()
+    const len = isFull ? 8 : this.byteLen()
     if (len > 0) {
       bufv.v.walk(len)
       bufv.writeUIntLE(this[kVal], bufv.v.start, len, true)
@@ -393,31 +445,72 @@ export class Offset extends Protocol {
   }
 
   nextOffset (byteLen: number): Offset {
-    let value = this[kVal] + byteLen
+    const value = this[kVal] + byteLen
     return new Offset(value)
-  }
-
-  /**
-   * 3 bits -> 0, 16/8, 24/8, 32/8, 40/8, 48/8, 56/8, 64/8
-   */
-  static flagToByteLen (flagBits: number): number {
-    if ((flagBits & 0b111) !== flagBits) throw new Error('invalid flagBits')
-    return flagBits ? (flagBits + 1) : 0
-  }
-
-  static fromBuffer (bufv: BufferVisitor, len: number): Offset {
-    bufv.v.walk(len)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-    return new Offset(len > 0 ? bufv.readUIntLE(bufv.v.start, len, true) : 0)
   }
 }
 
 /** SocketAddress representing a socket address. */
 export class SocketAddress extends Protocol {
+  static fromBuffer (bufv: BufferVisitor): SocketAddress {
+    const obj: AddressInfo = {
+      address: '',
+      family: FamilyType.IPv4,
+      port: 0,
+    }
+
+    bufv.v.walk(2)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INTERNAL_ERROR')
+    }
+    const family = bufv.readUInt16LE(bufv.v.start, true)
+    if (family === 0x02) {
+      obj.family = FamilyType.IPv4
+      bufv.v.walk(4)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
+      obj.address = [
+        bufv.readUInt8(bufv.v.start, true),
+        bufv.readUInt8(bufv.v.start + 1, true),
+        bufv.readUInt8(bufv.v.start + 2, true),
+        bufv.readUInt8(bufv.v.start + 3, true),
+      ].join('.')
+      bufv.v.walk(2)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
+      obj.port = bufv.readUInt16LE(bufv.v.start, true)
+    } else if (family === 0x0a) {
+      obj.family = FamilyType.IPv6
+      bufv.v.walk(16)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
+      obj.address = [
+        bufv.readUInt16BE(bufv.v.start, true).toString(16),
+        bufv.readUInt16BE(bufv.v.start + 2, true).toString(16),
+        bufv.readUInt16BE(bufv.v.start + 4, true).toString(16),
+        bufv.readUInt16BE(bufv.v.start + 6, true).toString(16),
+        bufv.readUInt16BE(bufv.v.start + 8, true).toString(16),
+        bufv.readUInt16BE(bufv.v.start + 10, true).toString(16),
+        bufv.readUInt16BE(bufv.v.start + 12, true).toString(16),
+        bufv.readUInt16BE(bufv.v.start + 14, true).toString(16),
+      ].join(':')
+      bufv.v.walk(2)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
+      obj.port = bufv.readUInt16LE(bufv.v.start, true)
+    } else {
+      throw new Error('invalid SocketAddress buffer')
+    }
+    return new SocketAddress(obj)
+  }
+
   port: number
   address: string
   family: FamilyType
-
   constructor (obj: AddressInfo) {
     if (!isAddress(obj)) {
       throw new Error(`invalid Socket Address ${JSON.stringify(obj)}`)
@@ -425,10 +518,13 @@ export class SocketAddress extends Protocol {
 
     let address = obj.address
     if (address.includes('::')) {
-      let unfold = '0:'
-      if (address.startsWith('::')) address = '0' + address
-      else if (address.endsWith('::')) address += '0'
-      let _address = address.split(':')
+      const unfold = '0:'
+      if (address.startsWith('::')) {
+        address = '0' + address
+      } else if (address.endsWith('::')) {
+        address += '0'
+      }
+      const _address = address.split(':')
       _address[_address.indexOf('')] = unfold.repeat(9 - _address.length).slice(0, -1)
       address = _address.join(':')
     }
@@ -442,14 +538,16 @@ export class SocketAddress extends Protocol {
 
   valueOf () {
     return {
-      family: this.family,
       address: this.address,
-      port: this.port
+      family: this.family,
+      port: this.port,
     }
   }
 
   equals (other: SocketAddress): boolean {
-    if (!(other instanceof SocketAddress)) return false
+    if (!(other instanceof SocketAddress)) {
+      return false
+    }
     return this.family === other.family && this.port === other.port && this.address === other.address
   }
 
@@ -458,11 +556,11 @@ export class SocketAddress extends Protocol {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    let address = this.address
+    const address = this.address
     if (this.family === FamilyType.IPv4) {
       bufv.v.walk(2)
       bufv.writeUInt16LE(0x02, bufv.v.start, true)
-      for (let val of address.split('.')) {
+      for (const val of address.split('.')) {
         bufv.v.walk(1)
         bufv.writeUInt8(parseInt(val, 10), bufv.v.start, true)
       }
@@ -471,7 +569,7 @@ export class SocketAddress extends Protocol {
     } else {
       bufv.v.walk(2)
       bufv.writeUInt16LE(0x0a, bufv.v.start, true)
-      for (let val of address.split(':')) {
+      for (const val of address.split(':')) {
         bufv.v.walk(2)
         bufv.writeUInt16BE(parseInt(val, 16), bufv.v.start, true)
       }
@@ -488,58 +586,47 @@ export class SocketAddress extends Protocol {
   [inspect.custom] (_depth: any, _options: any) {
     return `<SocketAddress port: ${this.port}, address: ${this.address}, family: ${this.family}>`
   }
-
-  static fromBuffer (bufv: BufferVisitor): SocketAddress {
-    let obj: AddressInfo = {
-      port: 0,
-      family: FamilyType.IPv4,
-      address: ''
-    }
-
-    bufv.v.walk(2)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-    let family = bufv.readUInt16LE(bufv.v.start, true)
-    if (family === 0x02) {
-      obj.family = FamilyType.IPv4
-      bufv.v.walk(4)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-      obj.address = [
-        bufv.readUInt8(bufv.v.start, true),
-        bufv.readUInt8(bufv.v.start + 1, true),
-        bufv.readUInt8(bufv.v.start + 2, true),
-        bufv.readUInt8(bufv.v.start + 3, true)
-      ].join('.')
-      bufv.v.walk(2)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-      obj.port = bufv.readUInt16LE(bufv.v.start, true)
-    } else if (family === 0x0a) {
-      obj.family = FamilyType.IPv6
-      bufv.v.walk(16)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-      obj.address = [
-        bufv.readUInt16BE(bufv.v.start, true).toString(16),
-        bufv.readUInt16BE(bufv.v.start + 2, true).toString(16),
-        bufv.readUInt16BE(bufv.v.start + 4, true).toString(16),
-        bufv.readUInt16BE(bufv.v.start + 6, true).toString(16),
-        bufv.readUInt16BE(bufv.v.start + 8, true).toString(16),
-        bufv.readUInt16BE(bufv.v.start + 10, true).toString(16),
-        bufv.readUInt16BE(bufv.v.start + 12, true).toString(16),
-        bufv.readUInt16BE(bufv.v.start + 14, true).toString(16)
-      ].join(':')
-      bufv.v.walk(2)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-      obj.port = bufv.readUInt16LE(bufv.v.start, true)
-    } else throw new Error('invalid SocketAddress buffer')
-    return new SocketAddress(obj)
-  }
 }
 
 /** QuicTag representing a QUIC tag. */
 export class QuicTag extends Protocol {
+  static fromBuffer (bufv: BufferVisitor): QuicTag {
+    bufv.v.walk(4)
+    const name = bufv.toString('utf8', bufv.v.start, bufv.v.end)
+    const quicTag = new QuicTag(name)
+    bufv.v.walk(4)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INTERNAL_ERROR')
+    }
+    let count = bufv.readInt32LE(bufv.v.start)
+
+    const baseOffset = bufv.v.end + 8 * count
+    const v2 = new Visitor(baseOffset)
+    while (count-- > 0) {
+      bufv.v.walk(4)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
+      const key = bufv.toString('utf8', bufv.v.start, bufv.v.end)
+      bufv.v.walk(4)
+      v2.walk(0)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
+      v2.end = baseOffset + bufv.readInt32LE(bufv.v.start)
+      if (bufv.length < v2.end) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
+      const val = bufv.slice(v2.start, v2.end)
+      quicTag.setTag(key, val)
+    }
+    bufv.v.reset(v2.end, v2.end)
+    return quicTag
+  }
+
   name: string
   keys: string[]
   tags: Map<string, Buffer>
-
   constructor (name: string) {
     super(name)
     this.name = name
@@ -549,14 +636,16 @@ export class QuicTag extends Protocol {
 
   valueOf () {
     return {
-      name: this.name,
       keys: this.keys,
-      tags: this.tags
+      name: this.name,
+      tags: this.tags,
     }
   }
 
   setTag (key: string, val: Buffer): void {
-    if (!this.keys.includes(key)) this.keys.push(key)
+    if (!this.keys.includes(key)) {
+      this.keys.push(key)
+    }
     this.tags.set(key, val)
   }
 
@@ -569,19 +658,25 @@ export class QuicTag extends Protocol {
   }
 
   equals (other: QuicTag): boolean {
-    if (!(other instanceof QuicTag)) return false
-    if (this.name !== other.name || this.keys.length !== other.keys.length) return false
-    for (let key of this.keys) {
-      let a = this.tags.get(key)
-      let b = other.tags.get(key)
-      if (!a || !b || !a.equals(b)) return false
+    if (!(other instanceof QuicTag)) {
+      return false
+    }
+    if (this.name !== other.name || this.keys.length !== other.keys.length) {
+      return false
+    }
+    for (const key of this.keys) {
+      const a = this.tags.get(key)
+      const b = other.tags.get(key)
+      if (a == null || b == null || !a.equals(b)) {
+        return false
+      }
     }
     return true
   }
 
   byteLen (): number {
     let byteLen = 8
-    for (let buf of this.tags.values()) {
+    for (const buf of this.tags.values()) {
       byteLen += 8 + buf.length
     }
     return byteLen
@@ -591,14 +686,16 @@ export class QuicTag extends Protocol {
     bufv.v.walk(4)
     bufv.write(this.name, bufv.v.start, 4)
     bufv.v.walk(4)
-    let size = this.tags.size
+    const size = this.tags.size
     bufv.writeUInt32LE(size, bufv.v.start, true)
 
     let baseOffset = 0
-    let v = new Visitor(bufv.v.end + 8 * size)
-    for (let key of this.keys) {
-      let val = this.tags.get(key)
-      if (!val) throw new QuicError('QUIC_INTERNAL_ERROR')
+    const v = new Visitor(bufv.v.end + 8 * size)
+    for (const key of this.keys) {
+      const val = this.tags.get(key)
+      if (val == null) {
+        throw new QuicError('QUIC_INTERNAL_ERROR')
+      }
       bufv.v.walk(4)
       bufv.write(key, bufv.v.start, 4)
       bufv.v.walk(4)
@@ -614,36 +711,10 @@ export class QuicTag extends Protocol {
   toString (): string {
     return JSON.stringify(this.valueOf())
   }
-
-  static fromBuffer (bufv: BufferVisitor): QuicTag {
-    bufv.v.walk(4)
-    let name = bufv.toString('utf8', bufv.v.start, bufv.v.end)
-    let quicTag = new QuicTag(name)
-    bufv.v.walk(4)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-    let count = bufv.readInt32LE(bufv.v.start)
-
-    let baseOffset = bufv.v.end + 8 * count
-    let v2 = new Visitor(baseOffset)
-    while (count--) {
-      bufv.v.walk(4)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-      let key = bufv.toString('utf8', bufv.v.start, bufv.v.end)
-      bufv.v.walk(4)
-      v2.walk(0)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-      v2.end = baseOffset + bufv.readInt32LE(bufv.v.start)
-      if (bufv.length < v2.end) throw new QuicError('QUIC_INTERNAL_ERROR')
-      let val = bufv.slice(v2.start, v2.end)
-      quicTag.setTag(key, val)
-    }
-    bufv.v.reset(v2.end, v2.end)
-    return quicTag
-  }
 }
 
 function isAddress (address: AddressInfo): boolean {
-  return address && address.port >= 0 && Number.isInteger(address.port) &&
+  return address != null && address.port >= 0 && Number.isInteger(address.port) &&
     typeof address.address === 'string' &&
     (address.family === FamilyType.IPv4 || address.family === FamilyType.IPv6)
 }

@@ -14,14 +14,14 @@ import {
   SocketAddress,
   SessionType,
   getVersion,
-  chooseVersion
+  chooseVersion,
 } from './internal/protocol'
 import {
   kID,
   kSocket,
   kState,
   kVersion,
-  kClientState
+  kClientState,
 } from './internal/symbol'
 
 import { Session } from './session'
@@ -40,16 +40,18 @@ export class Client extends Session {
     this[kClientState] = new ClientState()
   }
 
-  async connect (port: number, address: string): Promise<any> {
-    if (this[kSocket]) throw new Error('Client connecting duplicated')
+  async connect (port: number, address: string = 'localhost'): Promise<any> {
+    if (this[kSocket] != null) {
+      throw new Error('Client connecting duplicated')
+    }
 
-    let addr = await lookup(address || 'localhost')
+    const addr = await lookup(address)
 
-    debug(`client connect: ${address || 'localhost'}, ${port}`, addr)
+    debug(`client connect: ${address}, ${port}`, addr)
     this[kState].remotePort = port
     this[kState].remoteAddress = addr.address
     this[kState].remoteFamily = 'IPv' + addr.family
-    this[kState].remoteAddr = new SocketAddress({ port: port, address: addr.address, family: `IPv${addr.family}` })
+    this[kState].remoteAddr = new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
 
     const socket = this[kSocket] = createSocket(addr.family === 4 ? 'udp4' : 'udp6')
     socket
@@ -57,15 +59,15 @@ export class Client extends Session {
       .on('close', () => clientOnClose(this))
       .on('message', (msg, rinfo) => clientOnMessage(this, msg, rinfo))
 
-    let res = new Promise((resolve, reject) => {
+    const res = new Promise((resolve, reject) => {
       socket.once('listening', () => {
         socket.removeListener('error', reject)
 
-        let addr = socket.address()
-        this[kState].localFamily = addr.family
-        this[kState].localAddress = addr.address
-        this[kState].localPort = addr.port
-        this[kState].localAddr = new SocketAddress(addr)
+        const localAddr = socket.address()
+        this[kState].localFamily = localAddr.family
+        this[kState].localAddress = localAddr.address
+        this[kState].localPort = localAddr.port
+        this[kState].localAddr = new SocketAddress(localAddr)
         resolve()
         this.emit('connect')
       })
@@ -85,7 +87,7 @@ export class ClientState {
 
 function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
   debug(`client message: session ${client.id}, ${msg.length} bytes`, rinfo)
-  if (!msg.length) {
+  if (msg.length === 0) {
     return
   }
   // The packet size should not exceed protocol.MaxReceivePacketSize bytes
@@ -95,10 +97,10 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
     msg = msg.slice(0, MaxReceivePacketSize)
   }
 
-  let senderAddr = new SocketAddress(rinfo)
-  let rcvTime = Date.now()
+  const senderAddr = new SocketAddress(rinfo)
+  const rcvTime = Date.now()
 
-  let bufv = Visitor.wrap(msg)
+  const bufv = Visitor.wrap(msg)
   let packet = null
   try {
     packet = parsePacket(bufv, SessionType.SERVER, client[kVersion])
@@ -116,13 +118,13 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
   if (packet.isReset()) {
     // check if the remote address and the connection ID match
     // otherwise this might be an attacker trying to inject a PUBLIC_RESET to kill the connection
-    let remoteAddr = client[kState].remoteAddr
-    if (!remoteAddr || !remoteAddr.equals(senderAddr)) {
+    const remoteAddr = client[kState].remoteAddr
+    if (remoteAddr == null || !remoteAddr.equals(senderAddr)) {
       debug(`received a spoofed Public Reset. Ignoring.`)
       return
     }
 
-    let packetNumber = (packet as ResetPacket).packetNumber
+    const packetNumber = (packet as ResetPacket).packetNumber
     client._closeRemote(new Error(`Received Public Reset, rejected packet number: ${packetNumber}.`))
     return
   }
@@ -133,17 +135,17 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
       return
     }
 
-    let versions = (packet as NegotiationPacket).versions
-    if (client[kVersion] && versions.includes(client[kVersion])) {
+    const versions = (packet as NegotiationPacket).versions
+    if (client[kVersion] !== '' && versions.includes(client[kVersion])) {
       // the version negotiation packet contains the version that we offered
       // this might be a packet sent by an attacker (or by a terribly broken server implementation)
       // ignore it
       return
     }
 
-    let newVersion = chooseVersion(versions)
+    const newVersion = chooseVersion(versions)
     client[kClientState].receivedNegotiationPacket = true
-    if (newVersion) {
+    if (newVersion !== '') {
       // switch to negotiated version
       client[kVersion] = newVersion
       // TODO: resend all packets using this version
@@ -166,5 +168,5 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
 }
 
 function clientOnClose (_session: Client) {
-
+  return
 }

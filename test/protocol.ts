@@ -7,7 +7,7 @@ import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws, equal } from 'assert'
 
 import {
-  ConnectionID, PacketNumber, StreamID, SocketAddress, Offset, QuicTag
+  ConnectionID, PacketNumber, StreamID, SocketAddress, Offset, QuicTag,
 } from '../src/internal/protocol'
 import { Visitor, toBuffer } from '../src/internal/common'
 
@@ -16,7 +16,7 @@ import { bufferFromBytes } from './common'
 suite('QUIC Protocol', function () {
   suite('ConnectionID', function () {
     it('ConnectionID.random, ConnectionID.fromString', function () {
-      let connectionID = ConnectionID.random()
+      const connectionID = ConnectionID.random()
       strictEqual(connectionID.byteLen(), 8)
       strictEqual(connectionID.valueOf().length, 16)
       ok(connectionID.equals(new ConnectionID(connectionID.toString())))
@@ -45,15 +45,13 @@ suite('QUIC Protocol', function () {
 
       packetNumber = PacketNumber.fromBuffer(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x0
-      ]), 8)
+        0x1, 0x0, 0x0, 0x0]), 8)
       strictEqual(packetNumber.valueOf(), 0x100000000)
       ok(toBuffer(packetNumber).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x1, 0x0])))
 
       throws(() => PacketNumber.fromBuffer(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x1, 0x0
-      ]), 8))
+        0x1, 0x0, 0x1, 0x0]), 8))
     })
 
     it('new PacketNumber', function () {
@@ -153,15 +151,13 @@ suite('QUIC Protocol', function () {
 
       streamID = StreamID.fromBuffer(bufferFromBytes([
         0x0, 0x0, 0x0, 0x1,
-        0x0, 0x0, 0x0, 0x0
-      ]), 8)
+        0x0, 0x0, 0x0, 0x0]), 8)
       strictEqual(streamID.valueOf(), 0x1000000)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x1])))
 
       throws(() => StreamID.fromBuffer(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x0
-      ]), 8))
+        0x1, 0x0, 0x0, 0x0]), 8))
     })
 
     it('new StreamID', function () {
@@ -207,7 +203,7 @@ suite('QUIC Protocol', function () {
 
     it('StreamID.nextID', function () {
       let streamID1 = new StreamID(1)
-      let streamID2 = new StreamID(2)
+      const streamID2 = new StreamID(2)
       streamID1 = streamID1.nextID()
       strictEqual(streamID1.valueOf(), 3)
       strictEqual(streamID1.nextID().valueOf(), 5)
@@ -241,37 +237,35 @@ suite('QUIC Protocol', function () {
   suite('SocketAddress', function () {
     it('SocketAddress, IPv4', function () {
       let socketAddress = new SocketAddress(
-        {port: 3000, family: 'IPv4', address: '127.0.0.1'})
-      let res = SocketAddress.fromBuffer(toBuffer(socketAddress))
+        { port: 3000, family: 'IPv4', address: '127.0.0.1' })
+      const res = SocketAddress.fromBuffer(toBuffer(socketAddress))
       ok(socketAddress.equals(res))
 
       socketAddress = new SocketAddress(
-        {port: 0x1234, family: 'IPv4', address: '4.31.198.44'})
+        { port: 0x1234, family: 'IPv4', address: '4.31.198.44' })
       ok(toBuffer(socketAddress).equals(bufferFromBytes([
-        0x02, 0x00, 0x04, 0x1f, 0xc6, 0x2c, 0x34, 0x12
-      ])))
+        0x02, 0x00, 0x04, 0x1f, 0xc6, 0x2c, 0x34, 0x12])))
     })
 
     it('SocketAddress, IPv6', function () {
       let socketAddress = new SocketAddress(
-        {port: 65534, family: 'IPv6', address: '::1'})
+        { port: 65534, family: 'IPv6', address: '::1' })
       strictEqual(socketAddress.address, '0:0:0:0:0:0:0:1')
-      let res = SocketAddress.fromBuffer(toBuffer(socketAddress))
+      const res = SocketAddress.fromBuffer(toBuffer(socketAddress))
       ok(socketAddress.equals(res))
 
       socketAddress = new SocketAddress({
-        port: 0x5678, family: 'IPv6', address: '2001:700:300:1800::'})
+        address: '2001:700:300:1800::', family: 'IPv6', port: 0x5678})
       strictEqual(socketAddress.address, '2001:700:300:1800:0:0:0:0')
       ok(socketAddress.equals(SocketAddress.fromBuffer(toBuffer(socketAddress))))
 
       socketAddress = new SocketAddress({
-        port: 0x5678, family: 'IPv6', address: '2001:700:300:1800::f'})
+        address: '2001:700:300:1800::f', family: 'IPv6', port: 0x5678})
       ok(toBuffer(socketAddress).equals(bufferFromBytes([
         0x0a, 0x00,
         0x20, 0x01, 0x07, 0x00, 0x03, 0x00, 0x18, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0f,
-        0x78, 0x56
-      ])))
+        0x78, 0x56])))
     })
   })
 
@@ -295,22 +289,19 @@ suite('QUIC Protocol', function () {
 
       offset = Offset.fromBuffer(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x0
-      ]), 8)
+        0x1, 0x0, 0x0, 0x0]), 8)
       strictEqual(offset.valueOf(), 0x100000000)
       ok(toBuffer(offset).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x1])))
 
       offset = Offset.fromBuffer(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x0, 0x1, 0x0, 0x0
-      ]), 8)
+        0x0, 0x1, 0x0, 0x0]), 8)
       strictEqual(offset.valueOf(), 0x010000000000)
       ok(toBuffer(offset).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x0, 0x1])))
 
       throws(() => Offset.fromBuffer(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x1
-      ]), 8))
+        0x1, 0x0, 0x0, 0x1]), 8))
     })
 
     it('new Offset', function () {
@@ -429,26 +420,22 @@ suite('QUIC Protocol', function () {
       // client address
       0x02, 0x00,
       0x04, 0x1F, 0xC6, 0x2C,
-      0xBB, 0x01
-    ])
+      0xBB, 0x01])
 
     it('new QuicTag', function () {
-      let quicTag = new QuicTag('PRST')
+      const quicTag = new QuicTag('PRST')
       quicTag.setTag('RNON', bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB
-      ]))
+        0x01, 0xEF, 0xCD, 0xAB]))
 
       quicTag.setTag('RSEQ', bufferFromBytes([
         0xBC, 0x9A, 0x78, 0x56,
-        0x34, 0x12, 0x00, 0x00
-      ]))
+        0x34, 0x12, 0x00, 0x00]))
 
       quicTag.setTag('CADR', bufferFromBytes([
         0x02, 0x00,
         0x04, 0x1F, 0xC6, 0x2C,
-        0xBB, 0x01
-      ]))
+        0xBB, 0x01]))
 
       const bufv = Visitor.wrap(Buffer.alloc(quicTag.byteLen()))
       quicTag.writeTo(bufv)
@@ -464,19 +451,16 @@ suite('QUIC Protocol', function () {
       let tag = quicTag.getTag('RNON')
       ok(tag && tag.equals(bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB
-      ])))
+        0x01, 0xEF, 0xCD, 0xAB])))
       tag = quicTag.getTag('RSEQ')
       ok(tag && tag.equals(bufferFromBytes([
         0xBC, 0x9A, 0x78, 0x56,
-        0x34, 0x12, 0x00, 0x00
-      ])))
+        0x34, 0x12, 0x00, 0x00])))
       tag = quicTag.getTag('CADR')
       ok(tag && tag.equals(bufferFromBytes([
         0x02, 0x00,
         0x04, 0x1F, 0xC6, 0x2C,
-        0xBB, 0x01
-      ])))
+        0xBB, 0x01])))
 
       const bufv = Visitor.wrap(Buffer.alloc(8 + quicTag.byteLen()))
       bufv.v.walk(4)

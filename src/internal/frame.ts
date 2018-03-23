@@ -40,10 +40,16 @@ export function isStreamType (flag: number): boolean {
 
 export function parseFrame (bufv: BufferVisitor, headerPacketNumber: PacketNumber): Frame {
   bufv.v.walk(0) // align start and end
-  let type = bufv.readUInt8(bufv.v.start, true)
-  if (type >= 128) return StreamFrame.fromBuffer(bufv)
-  if (type >= 64) return AckFrame.fromBuffer(bufv)
-  if (type >= 32) return CongestionFeedbackFrame.fromBuffer(bufv)
+  const type = bufv.readUInt8(bufv.v.start, true)
+  if (type >= 128) {
+    return StreamFrame.fromBuffer(bufv)
+  }
+  if (type >= 64) {
+    return AckFrame.fromBuffer(bufv)
+  }
+  if (type >= 32) {
+    return CongestionFeedbackFrame.fromBuffer(bufv)
+  }
 
   switch (type) {
     case 0:
@@ -69,6 +75,10 @@ export function parseFrame (bufv: BufferVisitor, headerPacketNumber: PacketNumbe
 
 /** Frame representing a QUIC frame. */
 export abstract class Frame {
+  static fromBuffer (_bufv: BufferVisitor, _headerPacketNumber?: PacketNumber): Frame {
+    throw new Error(`class method "fromBuffer" is not implemented`)
+  }
+
   type: number
   name: string
   constructor (type: number, name: string) {
@@ -77,12 +87,7 @@ export abstract class Frame {
   }
 
   abstract byteLen (): number
-
   abstract writeTo (bufv: BufferVisitor): BufferVisitor
-
-  static fromBuffer (_bufv: BufferVisitor, _headerPacketNumber?: PacketNumber): Frame {
-    throw new Error(`class method "fromBuffer" is not implemented`)
-  }
 }
 
 /** StreamFrame representing a QUIC STREAM frame. */
@@ -113,15 +118,48 @@ export class StreamFrame extends Frame {
   // The fields in the STREAM frame header are as follows:
   // * Frame Type: The Frame Type byte is an 8-bit value containing various flags (1fdooossB):
   //   - The leftmost bit must be set to 1 indicating that this is a STREAM frame.
-  //   - The 'f' bit is the FIN bit. When set to 1, this bit indicates the sender is done sending on this stream and wishes to "half-close" (described in more detail later.)
-  //   - The 'd' bit indicates whether a Data Length is present in the STREAM header. When set to 0, this field indicates that the STREAM frame extends to the end of the Packet.
-  //   - The next three 'ooo' bits encode the length of the Offset header field as 0, 16, 24, 32, 40, 48, 56, or 64 bits long.
+  //   - The 'f' bit is the FIN bit. When set to 1, this bit indicates the sender is done
+  //     sending on this stream and wishes to "half-close" (described in more detail later.)
+  //   - The 'd' bit indicates whether a Data Length is present in the STREAM header. When set to 0,
+  //     this field indicates that the STREAM frame extends to the end of the Packet.
+  //   - The next three 'ooo' bits encode the length of the Offset header field as
+  //     0, 16, 24, 32, 40, 48, 56, or 64 bits long.
   //   - The next two 'ss' bits encode the length of the Stream ID header field as 8, 16, 24, or 32 bits long.
   // * Stream ID: A variable-sized unsigned ID unique to this stream.
   // * Offset: A variable-sized unsigned number specifying the byte offset in the stream for this block of data.
-  // * Data length: An optional 16-bit unsigned number specifying the length of the data in this stream frame. The option to omit the length should only be used when the packet is a "full-sized" Packet, to avoid the risk of corruption via padding.
+  // * Data length: An optional 16-bit unsigned number specifying the length of the data in this stream frame.
+  //     The option to omit the length should only be used when the packet is a "full-sized" Packet,
+  //     to avoid the risk of corruption via padding.
   //
   // A stream frame must always have either non-zero data length or the FIN bit set.
+  static fromBuffer (bufv: BufferVisitor): StreamFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (!isStreamType(type)) {
+      throw new QuicError('QUIC_INVALID_STREAM_DATA')
+    }
+
+    const isFIN = (type & 0b1000000) > 0
+    const streamID = StreamID.fromBuffer(bufv, StreamID.flagToByteLen(type & 0b11))
+    const offset = Offset.fromBuffer(bufv, Offset.flagToByteLen((type & 0b11100) >> 2))
+
+    let data = null
+    if ((type & 0b100000) > 0) {
+      bufv.v.walk(2)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INVALID_STREAM_DATA')
+      }
+      bufv.v.walk(bufv.readUInt16LE(bufv.v.start, true))
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INVALID_STREAM_DATA')
+      }
+      data = bufv.slice(bufv.v.start, bufv.v.end)
+    }
+
+    const frame = new StreamFrame(streamID, offset, data, isFIN)
+    frame.type = type
+    return frame
+  }
 
   streamID: StreamID
   offset: Offset
@@ -140,13 +178,17 @@ export class StreamFrame extends Frame {
   }
 
   byteLen (): number {
-    let dataLen = this.data ? this.data.length : 0
-    return 1 + this.streamID.byteLen() + this.offset.byteLen() + (dataLen ? (dataLen + 2) : 0)
+    const dataLen = this.data != null ? this.data.length : 0
+    return 1 + this.streamID.byteLen() + this.offset.byteLen() + (dataLen > 0 ? (dataLen + 2) : 0)
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    if (this.isFIN) this.type |= 0b1000000
-    if (this.data != null) this.type |= 0b00100000
+    if (this.isFIN) {
+      this.type |= 0b1000000
+    }
+    if (this.data != null) {
+      this.type |= 0b00100000
+    }
     this.type |= this.offset.flagBits() << 2
     this.type |= this.streamID.flagBits()
 
@@ -155,36 +197,13 @@ export class StreamFrame extends Frame {
     this.streamID.writeTo(bufv)
     this.offset.writeTo(bufv)
 
-    if (this.data) {
+    if (this.data != null) {
       bufv.v.walk(2)
       bufv.writeUInt16LE(this.data.length, bufv.v.start, true)
       bufv.v.walk(this.data.length)
       this.data.copy(bufv, bufv.v.start, 0, this.data.length)
     }
     return bufv
-  }
-
-  static fromBuffer (bufv: BufferVisitor): StreamFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (!isStreamType(type)) throw new QuicError('QUIC_INVALID_STREAM_DATA')
-
-    let isFIN = !!(type & 0b1000000)
-    let streamID = StreamID.fromBuffer(bufv, StreamID.flagToByteLen(type & 0b11))
-    let offset = Offset.fromBuffer(bufv, Offset.flagToByteLen((type & 0b11100) >> 2))
-
-    let data = null
-    if ((type & 0b100000) > 0) {
-      bufv.v.walk(2)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_STREAM_DATA')
-      bufv.v.walk(bufv.readUInt16LE(bufv.v.start, true))
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_STREAM_DATA')
-      data = bufv.slice(bufv.v.start, bufv.v.end)
-    }
-
-    let frame = new StreamFrame(streamID, offset, data, isFIN)
-    frame.type = type
-    return frame
   }
 }
 
@@ -248,20 +267,170 @@ export class AckFrame extends Frame {
   //   - The 'n' bit indicates whether the frame has more than 1 ack range.
   //   - The 'u' bit is unused.
   //   - The two 'll' bits encode the length of the Largest Observed field as 1, 2, 4, or 6 bytes long.
-  //   - The two 'mm' bits encode the length of the Missing Packet Sequence Number Delta field as 1, 2, 4, or 6 bytes long.
+  //   - The two 'mm' bits encode the length of the Missing Packet Sequence Number Delta field as
+  //     1, 2, 4, or 6 bytes long.
   // * Largest Acked: A variable-sized unsigned value representing the largest packet number the peer has observed.
-  // * Largest Acked Delta Time: A 16-bit unsigned float with 11 explicit bits of mantissa and 5 bits of explicit exponent, specifying the time elapsed in microseconds from when largest acked was received until this Ack frame was sent. The bit format is loosely modeled after IEEE 754. For example, 1 microsecond is represented as 0x1, which has an exponent of zero, presented in the 5 high order bits, and mantissa of 1, presented in the 11 low order bits. When the explicit exponent is greater than zero, an implicit high-order 12th bit of 1 is assumed in the mantissa. For example, a floating value of 0x800 has an explicit exponent of 1, as well as an explicit mantissa of 0, but then has an effective mantissa of 4096 (12th bit is assumed to be 1). Additionally, the actual exponent is one-less than the explicit exponent, and the value represents 4096 microseconds. Any values larger than the representable range are clamped to 0xFFFF.
+  // * Largest Acked Delta Time: A 16-bit unsigned float with 11 explicit bits of mantissa and 5 bits of
+  //   explicit exponent, specifying the time elapsed in microseconds from when largest acked was received until
+  //   this Ack frame was sent. The bit format is loosely modeled after IEEE 754. For example, 1 microsecond is
+  //   represented as 0x1, which has an exponent of zero, presented in the 5 high order bits, and mantissa of 1,
+  //   presented in the 11 low order bits. When the explicit exponent is greater than zero, an implicit high-order
+  //   12th bit of 1 is assumed in the mantissa. For example, a floating value of 0x800 has an explicit exponent of 1,
+  //   as well as an explicit mantissa of 0, but then has an effective mantissa of 4096 (12th bit is assumed to be 1).
+  //   Additionally, the actual exponent is one-less than the explicit exponent, and the value represents
+  //   4096 microseconds. Any values larger than the representable range are clamped to 0xFFFF.
   // * Ack Block Section:
-  //   - Num Blocks: An optional 8-bit unsigned value specifying one less than the number of ack blocks. Only present if the 'n' flag bit is 1.
-  //   - Ack block length: A variable-sized packet number delta. For the first missing packet range, the ack block starts at largest acked. For the first ack block, the length of the ack block is 1 + this value.  For subsequent ack blocks, it is the length of the ack block.  For non-first blocks, a value of 0 indicates more than 256 packets in a row were lost.
+  //   - Num Blocks: An optional 8-bit unsigned value specifying one less than the number of ack blocks.
+  //     Only present if the 'n' flag bit is 1.
+  //   - Ack block length: A variable-sized packet number delta. For the first missing packet range,
+  //     the ack block starts at largest acked. For the first ack block, the length of the ack block is
+  //     1 + this value.  For subsequent ack blocks, it is the length of the ack block.  For non-first blocks,
+  //     a value of 0 indicates more than 256 packets in a row were lost.
   //   - Gap to next block: An 8-bit unsigned value specifying the number of packets between ack blocks.
   // * Timestamp Section:
-  //   - Num Timestamp: An 8-bit unsigned value specifying the number of timestamps that are included in this ack frame. There will be this many pairs of <packet number, timestamp> following in the timestamps.
-  //   - Delta Largest Observed: An 8-bit unsigned value specifying the packet number delta from the first timestamp to the largest observed. Therefore, the packet number is the largest observed minus the delta largest observed.
-  //   - First Timestamp: A 32-bit unsigned value specifying the time delta in microseconds, from the beginning of the connection of the arrival of the packet specified by Largest Observed minus Delta Largest Observed.
+  //   - Num Timestamp: An 8-bit unsigned value specifying the number of timestamps that are included
+  //     in this ack frame. There will be this many pairs of <packet number, timestamp> following in the timestamps.
+  //   - Delta Largest Observed: An 8-bit unsigned value specifying the packet number delta from the
+  //     first timestamp to the largest observed. Therefore, the packet number is the largest observed minus
+  //     the delta largest observed.
+  //   - First Timestamp: A 32-bit unsigned value specifying the time delta in microseconds, from the beginning
+  //     of the connection of the arrival of the packet specified by Largest Observed minus Delta Largest Observed.
   //   - Delta Largest Observed (Repeated): (Same as above.)
-  //   - Time Since Previous Timestamp (Repeated): A 16-bit unsigned value specifying delta from the previous timestamp. It is encoded in the same format as the Ack Delay Time.
+  //   - Time Since Previous Timestamp (Repeated): A 16-bit unsigned value specifying delta from the previous
+  //     timestamp. It is encoded in the same format as the Ack Delay Time.
   //
+  static fromBuffer (bufv: BufferVisitor): AckFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (!isACKType(type)) {
+      throw new QuicError('QUIC_INVALID_ACK_DATA')
+    }
+
+    const frame = new AckFrame()
+    const hasMissingRanges = (type & 0b00100000) > 0
+    let missingNumberDeltaLen = 2 * (type & 0b11)
+    if (missingNumberDeltaLen === 0) {
+      missingNumberDeltaLen = 1
+    }
+    frame.largestAcked = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((type & 0b1100) >> 2)).valueOf()
+
+    bufv.v.walk(2)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+    frame.delayTime = readUFloat16(bufv, bufv.v.start)
+
+    let numAckBlocks = 0
+    if (hasMissingRanges) {
+      bufv.v.walk(1)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      }
+      numAckBlocks = bufv.readUInt8(bufv.v.start, true)
+    }
+    if (hasMissingRanges && numAckBlocks === 0) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+    bufv.v.walk(missingNumberDeltaLen)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+    let ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
+    const largestAcked = frame.largestAcked
+    if ((largestAcked > 0 && ackBlockLength < 1) || ackBlockLength > largestAcked) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+
+    if (hasMissingRanges) {
+      let ackRange = new AckRange(largestAcked - ackBlockLength + 1, largestAcked)
+      frame.ackRanges.push(ackRange)
+
+      let inLongBlock = false
+      let lastRangeComplete = false
+      for (let i = 0; i < numAckBlocks; i++) {
+        bufv.v.walk(1)
+        if (bufv.length < bufv.v.end) {
+          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+        }
+        const gap = bufv.readUInt8(bufv.v.start, true)
+
+        bufv.v.walk(missingNumberDeltaLen)
+        if (bufv.length < bufv.v.end) {
+          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+        }
+        ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
+
+        if (inLongBlock) {
+          frame.ackRanges[frame.ackRanges.length - 1].first -= gap + ackBlockLength
+          frame.ackRanges[frame.ackRanges.length - 1].last -= gap
+        } else {
+          lastRangeComplete = false
+          ackRange = new AckRange(0, frame.ackRanges[frame.ackRanges.length - 1].first - gap - 1)
+          ackRange.first = ackRange.last - ackBlockLength + 1
+          frame.ackRanges.push(ackRange)
+        }
+
+        if (ackBlockLength > 0) {
+          lastRangeComplete = true
+        }
+        inLongBlock = (ackBlockLength === 0)
+      }
+
+      // if the last range was not complete, firstNum and lastNum make no sense
+      // remove the range from frame.ackRanges
+      if (!lastRangeComplete) {
+        frame.ackRanges = frame.ackRanges.slice(0, -1)
+      }
+      frame.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].first
+    } else {
+      if (frame.largestAcked === 0) {
+        frame.lowestAcked = 0
+      } else {
+        frame.lowestAcked = largestAcked - ackBlockLength + 1
+      }
+    }
+
+    if (!frame.validateAckRanges()) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+
+    bufv.v.walk(1)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+    const numTimestamp = bufv.readUInt8(bufv.v.start, true)
+    if (numTimestamp > 0) { // TODO
+      // Delta Largest acked
+      bufv.v.walk(1)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      }
+      // buf.readUInt8(v.start, true)
+      // First Timestamp
+      bufv.v.walk(4)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      }
+      // buf.readUInt32LE(v.start, true)
+
+      for (let i = 0; i < numTimestamp - 1; i++) {
+        // Delta Largest acked
+        bufv.v.walk(1)
+        if (bufv.length < bufv.v.end) {
+          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+        }
+        // buf.readUInt8(v.start, true)
+        // Time Since Previous Timestamp
+        bufv.v.walk(2)
+        if (bufv.length < bufv.v.end) {
+          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+        }
+        // buf.readUInt16LE(v.start, true)
+      }
+    }
+    return frame
+  }
+
   largestAcked: number
   lowestAcked: number
   ackRanges: AckRange[]
@@ -272,7 +441,8 @@ export class AckFrame extends Frame {
 
     this.largestAcked = 0 // largest PacketNumber Value
     this.lowestAcked = 0 // lowest PacketNumber Value
-    // has to be ordered. The ACK range with the highest firstNum goes first, the ACK range with the lowest firstNum goes last
+    // has to be ordered. The ACK range with the highest firstNum goes first,
+    // the ACK range with the lowest firstNum goes last
     this.ackRanges = []
     this.delayTime = 0 // microseconds
     // time when the LargestAcked was received, this field Will not be set for received ACKs frames
@@ -297,7 +467,7 @@ export class AckFrame extends Frame {
     }
 
     // check the validity of every single ACK range
-    for (let ackRange of this.ackRanges) {
+    for (const ackRange of this.ackRanges) {
       if (ackRange.first > ackRange.last || ackRange.first <= 0) {
         return false
       }
@@ -305,7 +475,7 @@ export class AckFrame extends Frame {
 
     // check the consistency for ACK with multiple NACK ranges
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
-      let lastAckRange = this.ackRanges[i - 1]
+      const lastAckRange = this.ackRanges[i - 1]
       if (lastAckRange.first <= this.ackRanges[i].first) {
         return false
       }
@@ -323,13 +493,18 @@ export class AckFrame extends Frame {
 
     let numRanges = 0
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
-      let lastAckRange = this.ackRanges[i - 1]
-      let gap = lastAckRange.first - this.ackRanges[i].last - 1
+      const lastAckRange = this.ackRanges[i - 1]
+      const gap = lastAckRange.first - this.ackRanges[i].last - 1
       let rangeLength = 1 + Math.floor(gap / 0xff)
 
-      if (gap % 0xff === 0) rangeLength--
-      if (numRanges + rangeLength < 0xff) numRanges += rangeLength
-      else break
+      if (gap % 0xff === 0) {
+        rangeLength--
+      }
+      if (numRanges + rangeLength < 0xff) {
+        numRanges += rangeLength
+      } else {
+        break
+      }
     }
 
     return numRanges + 1
@@ -339,8 +514,8 @@ export class AckFrame extends Frame {
     let maxRangeLength = 0
 
     if (this.hasMissingRanges()) {
-      for (let ackRange of this.ackRanges) {
-        let rangeLength = ackRange.len()
+      for (const ackRange of this.ackRanges) {
+        const rangeLength = ackRange.len()
         if (rangeLength > maxRangeLength) {
           maxRangeLength = rangeLength
         }
@@ -349,9 +524,15 @@ export class AckFrame extends Frame {
       maxRangeLength = this.largestAcked - this.lowestAcked + 1
     }
 
-    if (maxRangeLength <= 0xff) return 0
-    if (maxRangeLength <= 0xffff) return 1
-    if (maxRangeLength <= 0xffffff) return 2
+    if (maxRangeLength <= 0xff) {
+      return 0
+    }
+    if (maxRangeLength <= 0xffff) {
+      return 1
+    }
+    if (maxRangeLength <= 0xffffff) {
+      return 2
+    }
     return 3
   }
 
@@ -362,7 +543,7 @@ export class AckFrame extends Frame {
 
     if (this.hasMissingRanges()) {
       // TODO: this could be implemented as a binary search
-      for (let ackRange of this.ackRanges) {
+      for (const ackRange of this.ackRanges) {
         if (val >= ackRange.first && val <= ackRange.last) {
           return true
         }
@@ -374,18 +555,21 @@ export class AckFrame extends Frame {
   }
 
   byteLen (): number {
-    let hasMissingRanges = this.hasMissingRanges()
-    let largestAckedNum = new PacketNumber(this.largestAcked)
-    let flagBits = this.getMissingNumberDeltaFlagBits()
-    let largestAckedLen = largestAckedNum.byteLen()
-    let missingNumberDeltaLen = PacketNumber.flagToByteLen(flagBits)
+    const hasMissingRanges = this.hasMissingRanges()
+    const largestAckedNum = new PacketNumber(this.largestAcked)
+    const flagBits = this.getMissingNumberDeltaFlagBits()
+    const largestAckedLen = largestAckedNum.byteLen()
+    const missingNumberDeltaLen = PacketNumber.flagToByteLen(flagBits)
     let frameLen = 1 + largestAckedLen + 2
     let numRanges = 0
     // Blocks
-    if (!hasMissingRanges) frameLen += missingNumberDeltaLen
-    else {
+    if (!hasMissingRanges) {
+      frameLen += missingNumberDeltaLen
+    } else {
       numRanges = this.numWritableNackRanges()
-      if (numRanges > 0xff) throw new Error('AckFrame: Too many ACK ranges')
+      if (numRanges > 0xff) {
+        throw new Error('AckFrame: Too many ACK ranges')
+      }
       frameLen += missingNumberDeltaLen + 1
       frameLen += (missingNumberDeltaLen + 1) * (numRanges - 1)
     }
@@ -394,23 +578,25 @@ export class AckFrame extends Frame {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    let hasMissingRanges = this.hasMissingRanges()
-    if (hasMissingRanges) this.type |= 0b100000
+    const hasMissingRanges = this.hasMissingRanges()
+    if (hasMissingRanges) {
+      this.type |= 0b100000
+    }
 
-    let largestAckedNum = new PacketNumber(this.largestAcked)
+    const largestAckedNum = new PacketNumber(this.largestAcked)
     this.type |= largestAckedNum.flagBits() << 2
-    let flagBits = this.getMissingNumberDeltaFlagBits()
+    const flagBits = this.getMissingNumberDeltaFlagBits()
     this.type |= flagBits
 
-    let missingNumberDeltaLen = PacketNumber.flagToByteLen(flagBits)
+    const missingNumberDeltaLen = PacketNumber.flagToByteLen(flagBits)
     let numRanges = 0
 
     bufv.v.walk(1)
     bufv.writeUInt8(this.type, bufv.v.start)
     largestAckedNum.writeTo(bufv)
 
-    if (!this.delayTime && this.packetReceivedTime) {
-      let delayTime = process.hrtime(this.packetReceivedTime) // [seconds, nanoseconds]
+    if (this.delayTime === 0 && this.packetReceivedTime != null) {
+      const delayTime = process.hrtime(this.packetReceivedTime) // [seconds, nanoseconds]
       this.delayTime = delayTime[0] * 1000 * 1000 + Math.floor(delayTime[1] / 1000) // microsecond
     }
     bufv.v.walk(2)
@@ -419,7 +605,9 @@ export class AckFrame extends Frame {
     let numRangesWritten = 0
     if (hasMissingRanges) {
       numRanges = this.numWritableNackRanges()
-      if (numRanges > 0xff) throw new Error('AckFrame: Too many ACK ranges')
+      if (numRanges > 0xff) {
+        throw new Error('AckFrame: Too many ACK ranges')
+      }
       bufv.v.walk(1)
       bufv.writeUInt8(numRanges - 1, bufv.v.start)
     }
@@ -442,8 +630,8 @@ export class AckFrame extends Frame {
     bufv.writeUIntLE(firstAckBlockLength, bufv.v.start, missingNumberDeltaLen)
 
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
-      let length = this.ackRanges[i].len()
-      let gap = this.ackRanges[i - 1].first - this.ackRanges[i].last - 1
+      const length = this.ackRanges[i].len()
+      const gap = this.ackRanges[i - 1].first - this.ackRanges[i].last - 1
 
       let num = Math.floor(gap / 0xff) + 1
       if (gap % 0xff === 0) {
@@ -489,119 +677,6 @@ export class AckFrame extends Frame {
     bufv.writeUInt8(0, bufv.v.start) // no timestamps
     return bufv
   }
-
-  static fromBuffer (bufv: BufferVisitor): AckFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (!isACKType(type)) throw new QuicError('QUIC_INVALID_ACK_DATA')
-
-    let frame = new AckFrame()
-    let hasMissingRanges = type & 0b00100000
-    let missingNumberDeltaLen = (2 * (type & 0b11)) || 1
-    frame.largestAcked = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((type & 0b1100) >> 2)).valueOf()
-
-    bufv.v.walk(2)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    frame.delayTime = readUFloat16(bufv, bufv.v.start)
-
-    let numAckBlocks = 0
-    if (hasMissingRanges) {
-      bufv.v.walk(1)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-      numAckBlocks = bufv.readUInt8(bufv.v.start, true)
-    }
-    if (hasMissingRanges && numAckBlocks === 0) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    }
-    bufv.v.walk(missingNumberDeltaLen)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    let ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
-    let largestAcked = frame.largestAcked
-    if ((largestAcked > 0 && ackBlockLength < 1) || ackBlockLength > largestAcked) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    }
-
-    if (hasMissingRanges) {
-      let ackRange = new AckRange(
-        largestAcked - ackBlockLength + 1,
-        largestAcked
-      )
-      frame.ackRanges.push(ackRange)
-
-      let inLongBlock = false
-      let lastRangeComplete = false
-      for (let i = 0; i < numAckBlocks; i++) {
-        bufv.v.walk(1)
-        if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-        let gap = bufv.readUInt8(bufv.v.start, true)
-
-        bufv.v.walk(missingNumberDeltaLen)
-        if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-        ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
-
-        if (inLongBlock) {
-          frame.ackRanges[frame.ackRanges.length - 1].first -= gap + ackBlockLength
-          frame.ackRanges[frame.ackRanges.length - 1].last -= gap
-        } else {
-          lastRangeComplete = false
-          ackRange = new AckRange(
-            0,
-            frame.ackRanges[frame.ackRanges.length - 1].first - gap - 1
-          )
-          ackRange.first = ackRange.last - ackBlockLength + 1
-          frame.ackRanges.push(ackRange)
-        }
-
-        if (ackBlockLength > 0) {
-          lastRangeComplete = true
-        }
-        inLongBlock = (ackBlockLength === 0)
-      }
-
-      // if the last range was not complete, firstNum and lastNum make no sense
-      // remove the range from frame.ackRanges
-      if (!lastRangeComplete) {
-        frame.ackRanges = frame.ackRanges.slice(0, -1)
-      }
-      frame.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].first
-    } else {
-      if (frame.largestAcked === 0) {
-        frame.lowestAcked = 0
-      } else {
-        frame.lowestAcked = largestAcked - ackBlockLength + 1
-      }
-    }
-
-    if (!frame.validateAckRanges()) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    }
-
-    bufv.v.walk(1)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    let numTimestamp = bufv.readUInt8(bufv.v.start, true)
-    if (numTimestamp > 0) { // TODO
-      // Delta Largest acked
-      bufv.v.walk(1)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-      // buf.readUInt8(v.start, true)
-      // First Timestamp
-      bufv.v.walk(4)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-      // buf.readUInt32LE(v.start, true)
-
-      for (let i = 0; i < numTimestamp - 1; i++) {
-        // Delta Largest acked
-        bufv.v.walk(1)
-        if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-        // buf.readUInt8(v.start, true)
-        // Time Since Previous Timestamp
-        bufv.v.walk(2)
-        if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-        // buf.readUInt16LE(v.start, true)
-      }
-    }
-    return frame
-  }
 }
 
 /** StopWaitingFrame representing a QUIC STOP_WAITING frame. */
@@ -617,9 +692,30 @@ export class StopWaitingFrame extends Frame {
   // ---
   //
   // The fields in the STOP_WAITING frame are as follows:
-  // * Frame Type: The Frame Type byte is an 8-bit value that must be set to 0x06 indicating that this is a STOP_WAITING frame.
-  // * Least Unacked Delta: A variable length packet number delta with the same length as the packet header's packet number.  Subtract it from the header's packet number to determine the least unacked. The resulting least unacked is the smallest packet number of any packet for which the sender is still awaiting an ack. If the receiver is missing any packets smaller than this value, the receiver should consider those packets to be irrecoverably lost.
+  // * Frame Type: The Frame Type byte is an 8-bit value that must be set to 0x06 indicating
+  //   that this is a STOP_WAITING frame.
+  // * Least Unacked Delta: A variable length packet number delta with the same length as the
+  //   packet header's packet number.  Subtract it from the header's packet number to determine
+  //   the least unacked. The resulting least unacked is the smallest packet number of any packet
+  //   for which the sender is still awaiting an ack. If the receiver is missing any packets smaller
+  //   than this value, the receiver should consider those packets to be irrecoverably lost.
   //
+  static fromBuffer (bufv: BufferVisitor, packetNumber: PacketNumber): StopWaitingFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type !== 0x06) {
+      throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
+    }
+
+    const len = packetNumber.byteLen()
+    bufv.v.walk(len)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
+    }
+    const delta = bufv.readIntLE(bufv.v.start, len, false)
+    return new StopWaitingFrame(packetNumber, new PacketNumber(packetNumber.valueOf() - delta))
+  }
+
   packetNumber: PacketNumber
   leastUnacked: PacketNumber
   constructor (packetNumber: PacketNumber, leastUnacked: PacketNumber) {
@@ -633,24 +729,12 @@ export class StopWaitingFrame extends Frame {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    let len = this.packetNumber.byteLen()
+    const len = this.packetNumber.byteLen()
     bufv.v.walk(1)
     bufv.writeUInt8(this.type, bufv.v.start)
     bufv.v.walk(len)
     bufv.writeUIntLE(this.packetNumber.valueOf() - this.leastUnacked.valueOf(), bufv.v.start, len)
     return bufv
-  }
-
-  static fromBuffer (bufv: BufferVisitor, packetNumber: PacketNumber): StopWaitingFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type !== 0x06) throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
-
-    let len = packetNumber.byteLen()
-    bufv.v.walk(len)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
-    let delta = bufv.readIntLE(bufv.v.start, len, false)
-    return new StopWaitingFrame(packetNumber, new PacketNumber(packetNumber.valueOf() - delta))
   }
 }
 
@@ -665,10 +749,26 @@ export class WindowUpdateFrame extends Frame {
   // +--------+--------+-- ... --+-------+--------+-- ... --+-------+
   // ---
   // The fields in the WINDOW_UPDATE frame are as follows:
-  // * Frame Type: The Frame Type byte is an 8-bit value that must be set to 0x04 indicating that this is a WINDOW_UPDATE frame.
-  // * Stream ID: ID of the stream whose flow control windows is being updated, or 0 to specify the connection-level flow control window.
-  // * Byte offset: A 64-bit unsigned integer indicating the absolute byte offset of data which can be sent on the given stream. In the case of connection level flow control, the cumulative number of bytes which can be sent on all currently open streams.
+  // * Frame Type: The Frame Type byte is an 8-bit value that must be set to 0x04
+  //   indicating that this is a WINDOW_UPDATE frame.
+  // * Stream ID: ID of the stream whose flow control windows is being updated,
+  //   or 0 to specify the connection-level flow control window.
+  // * Byte offset: A 64-bit unsigned integer indicating the absolute byte offset of data
+  //   which can be sent on the given stream. In the case of connection level flow control,
+  //   the cumulative number of bytes which can be sent on all currently open streams.
   //
+  static fromBuffer (bufv: BufferVisitor): WindowUpdateFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type !== 0x04) {
+      throw new QuicError('QUIC_INVALID_WINDOW_UPDATE_DATA')
+    }
+
+    const streamID = StreamID.fromBuffer(bufv, 4)
+    const offset = Offset.fromBuffer(bufv, 8)
+    return new WindowUpdateFrame(streamID, offset)
+  }
+
   streamID: StreamID
   offset: Offset
   constructor (streamID: StreamID, offset: Offset) {
@@ -688,16 +788,6 @@ export class WindowUpdateFrame extends Frame {
     this.offset.writeTo(bufv, true)
     return bufv
   }
-
-  static fromBuffer (bufv: BufferVisitor): WindowUpdateFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type !== 0x04) throw new QuicError('QUIC_INVALID_WINDOW_UPDATE_DATA')
-
-    let streamID = StreamID.fromBuffer(bufv, 4)
-    let offset = Offset.fromBuffer(bufv, 8)
-    return new WindowUpdateFrame(streamID, offset)
-  }
 }
 
 /** BlockedFrame representing a QUIC BLOCKED frame. */
@@ -712,9 +802,22 @@ export class BlockedFrame extends Frame {
   // ---
   //
   // The fields in the BLOCKED frame are as follows:
-  // * Frame Type: The Frame Type byte is an 8-bit value that must be set to 0x05 indicating that this is a BLOCKED frame.
-  // * Stream ID: A 32-bit unsigned number indicating the stream which is flow control blocked. A non-zero Stream ID field specifies the stream that is flow control blocked. When zero, the Stream ID field indicates that the connection is flow control blocked at the connection level.
+  // * Frame Type: The Frame Type byte is an 8-bit value that must be set
+  //   to 0x05 indicating that this is a BLOCKED frame.
+  // * Stream ID: A 32-bit unsigned number indicating the stream which is flow control blocked.
+  //   A non-zero Stream ID field specifies the stream that is flow control blocked. When zero,
+  //   the Stream ID field indicates that the connection is flow control blocked at the connection level.
   //
+  static fromBuffer (bufv: BufferVisitor): BlockedFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type !== 0x05) {
+      throw new QuicError('QUIC_INVALID_BLOCKED_DATA')
+    }
+    const streamID = StreamID.fromBuffer(bufv, 4)
+    return new BlockedFrame(streamID)
+  }
+
   streamID: StreamID
   constructor (streamID: StreamID) {
     super(0x05, 'BLOCKED')
@@ -731,14 +834,6 @@ export class BlockedFrame extends Frame {
     this.streamID.writeTo(bufv, true)
     return bufv
   }
-
-  static fromBuffer (bufv: BufferVisitor): BlockedFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type !== 0x05) throw new QuicError('QUIC_INVALID_BLOCKED_DATA')
-    let streamID = StreamID.fromBuffer(bufv, 4)
-    return new BlockedFrame(streamID)
-  }
 }
 
 /** CongestionFeedbackFrame representing a QUIC CONGESTION_FEEDBACK frame. */
@@ -748,6 +843,15 @@ export class CongestionFeedbackFrame extends Frame {
   // It is intended to provide extra congestion feedback information outside the scope of
   // the standard ack frame. A CONGESTION_FEEDBACK frame must have the first three bits of
   // the Frame Type set to 001. The last 5 bits of the Frame Type field are reserved for future use.
+  static fromBuffer (bufv: BufferVisitor): CongestionFeedbackFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (!isCongestionType(type)) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+    return new CongestionFeedbackFrame()
+  }
+
   constructor () {
     super(0b00100000, 'CONGESTION_FEEDBACK')
   }
@@ -761,13 +865,6 @@ export class CongestionFeedbackFrame extends Frame {
     bufv.writeUInt8(this.type, bufv.v.start)
     return bufv
   }
-
-  static fromBuffer (bufv: BufferVisitor): CongestionFeedbackFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (!isCongestionType(type)) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    return new CongestionFeedbackFrame()
-  }
 }
 
 /** PaddingFrame representing a QUIC PADDING frame. */
@@ -777,6 +874,15 @@ export class PaddingFrame extends Frame {
   // the rest of the packet is expected to be padding bytes. The frame contains 0x00 bytes
   // and extends to the end of the QUIC packet. A PADDING frame only has a Frame Type field,
   // and must have the 8-bit Frame Type field set to 0x00.
+  static fromBuffer (bufv: BufferVisitor): PaddingFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type > 0) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+    return new PaddingFrame()
+  }
+
   constructor () {
     super(0x00, 'PADDING')
   }
@@ -789,13 +895,6 @@ export class PaddingFrame extends Frame {
     bufv.v.walk(1)
     bufv.writeUInt8(0, bufv.v.start)
     return bufv
-  }
-
-  static fromBuffer (bufv: BufferVisitor): PaddingFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    return new PaddingFrame()
   }
 }
 
@@ -814,8 +913,21 @@ export class RstStreamFrame extends Frame {
   // * Frame type: The Frame Type is an 8-bit value that must be set to 0x01 specifying that this is a RST_STREAM frame.
   // * Stream ID: The 32-bit Stream ID of the stream being terminated.
   // * Byte offset: A 64-bit unsigned integer indicating the absolute byte offset of the end of data for this stream.
-  // * Error code: A 32-bit QuicErrorCode which indicates why the stream is being closed. QuicErrorCodes are listed later in this document.
+  // * Error code: A 32-bit QuicErrorCode which indicates why the stream is being closed.
+  //   QuicErrorCodes are listed later in this document.
   //
+  static fromBuffer (bufv: BufferVisitor): RstStreamFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type !== 0x01 || bufv.length < (bufv.v.end + 16)) {
+      throw new QuicError('QUIC_INVALID_RST_STREAM_DATA')
+    }
+    const streamID = StreamID.fromBuffer(bufv, 4)
+    const offset = Offset.fromBuffer(bufv, 8)
+    const error = QuicError.fromBuffer(bufv)
+    return new RstStreamFrame(streamID, offset, error)
+  }
+
   streamID: StreamID
   offset: Offset
   error: QuicStreamError
@@ -838,16 +950,6 @@ export class RstStreamFrame extends Frame {
     this.error.writeTo(bufv)
     return bufv
   }
-
-  static fromBuffer (bufv: BufferVisitor): RstStreamFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type !== 0x01 || bufv.length < (bufv.v.end + 16)) throw new QuicError('QUIC_INVALID_RST_STREAM_DATA')
-    let streamID = StreamID.fromBuffer(bufv, 4)
-    let offset = Offset.fromBuffer(bufv, 8)
-    let error = QuicError.fromBuffer(bufv)
-    return new RstStreamFrame(streamID, offset, error)
-  }
 }
 
 /** PingFrame representing a QUIC PING frame. */
@@ -860,6 +962,15 @@ export class PingFrame extends Frame {
   // The default is to do this after 15 seconds of quiescence,
   // which is much shorter than most NATs time out. A PING frame only
   // has a Frame Type field, and must have the 8-bit Frame Type field set to 0x07.
+  static fromBuffer (bufv: BufferVisitor): PingFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type !== 0x07) {
+      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+    }
+    return new PingFrame()
+  }
+
   constructor () {
     super(0x07, 'PING')
   }
@@ -872,13 +983,6 @@ export class PingFrame extends Frame {
     bufv.v.walk(1)
     bufv.writeUInt8(this.type, bufv.v.start)
     return bufv
-  }
-
-  static fromBuffer (bufv: BufferVisitor): PingFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type !== 0x07) throw new QuicError('QUIC_INVALID_FRAME_DATA')
-    return new PingFrame()
   }
 }
 
@@ -897,9 +1001,29 @@ export class ConnectionCloseFrame extends Frame {
   // The fields of a CONNECTION_CLOSE frame are as follows:
   // * Frame Type: An 8-bit value that must be set to 0x02 specifying that this is a CONNECTION_CLOSE frame.
   // * Error Code: A 32-bit field containing the QuicErrorCode which indicates the reason for closing this connection.
-  // * Reason Phrase Length: A 16-bit unsigned number specifying the length of the reason phrase. This may be zero if the sender chooses to not give details beyond the QuicErrorCode.
+  // * Reason Phrase Length: A 16-bit unsigned number specifying the length of the reason phrase.
+  //   This may be zero if the sender chooses to not give details beyond the QuicErrorCode.
   // * Reason Phrase: An optional human-readable explanation for why the connection was closed.
   //
+  static fromBuffer (bufv: BufferVisitor): ConnectionCloseFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type !== 0x02 || bufv.length < (bufv.v.end + 6)) {
+      throw new QuicError('QUIC_INVALID_CONNECTION_CLOSE_DATA')
+    }
+    const error = QuicError.fromBuffer(bufv)
+    bufv.v.walk(2)
+    const reasonPhraseLen = bufv.readUInt16LE(bufv.v.start, true)
+    if (reasonPhraseLen > 0) {
+      bufv.v.walk(reasonPhraseLen)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INVALID_CONNECTION_CLOSE_DATA')
+      }
+      error.message = bufv.toString('utf8', bufv.v.start, bufv.v.end)
+    }
+    return new ConnectionCloseFrame(error)
+  }
+
   error: QuicError
   constructor (error: QuicError) {
     super(0x02, 'CONNECTION_CLOSE')
@@ -907,39 +1031,24 @@ export class ConnectionCloseFrame extends Frame {
   }
 
   byteLen (): number {
-    let reasonPhrase = this.error.message
-    let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
+    const reasonPhrase = this.error.message
+    const reasonPhraseLen = reasonPhrase !== '' ? Buffer.byteLength(reasonPhrase) : 0
     return 7 + reasonPhraseLen
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    let reasonPhrase = this.error.message
-    let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
+    const reasonPhrase = this.error.message
+    const reasonPhraseLen = reasonPhrase !== '' ? Buffer.byteLength(reasonPhrase) : 0
     bufv.v.walk(1)
     bufv.writeUInt8(this.type, bufv.v.start)
     this.error.writeTo(bufv)
     bufv.v.walk(2)
     bufv.writeUInt16LE(reasonPhraseLen, bufv.v.start, true)
-    if (reasonPhrase) {
+    if (reasonPhrase !== '') {
       bufv.v.walk(reasonPhraseLen)
       bufv.write(reasonPhrase, bufv.v.start, reasonPhraseLen)
     }
     return bufv
-  }
-
-  static fromBuffer (bufv: BufferVisitor): ConnectionCloseFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type !== 0x02 || bufv.length < (bufv.v.end + 6)) throw new QuicError('QUIC_INVALID_CONNECTION_CLOSE_DATA')
-    let error = QuicError.fromBuffer(bufv)
-    bufv.v.walk(2)
-    let reasonPhraseLen = bufv.readUInt16LE(bufv.v.start, true)
-    if (reasonPhraseLen) {
-      bufv.v.walk(reasonPhraseLen)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_CONNECTION_CLOSE_DATA')
-      error.message = bufv.toString('utf8', bufv.v.start, bufv.v.end)
-    }
-    return new ConnectionCloseFrame(error)
   }
 }
 
@@ -963,10 +1072,36 @@ export class GoAwayFrame extends Frame {
   // The fields of a GOAWAY frame are as follows:
   // * Frame type: An 8-bit value that must be set to 0x03 specifying that this is a GOAWAY frame.
   // * Error Code: A 32-bit field containing the QuicErrorCode which indicates the reason for closing this connection.
-  // * Last Good Stream ID: The last Stream ID which was accepted by the sender of the GOAWAY message. If no streams were replied to, this value must be set to 0.
-  // * Reason Phrase Length: A 16-bit unsigned number specifying the length of the reason phrase. This may be zero if the sender chooses to not give details beyond the error code.
+  // * Last Good Stream ID: The last Stream ID which was accepted by the sender of the GOAWAY message.
+  //   If no streams were replied to, this value must be set to 0.
+  // * Reason Phrase Length: A 16-bit unsigned number specifying the length of the reason phrase.
+  //   This may be zero if the sender chooses to not give details beyond the error code.
   // * Reason Phrase: An optional human-readable explanation for why the connection was closed.
   //
+  static fromBuffer (bufv: BufferVisitor): GoAwayFrame {
+    bufv.v.walk(1)
+    const type = bufv[bufv.v.start]
+    if (type !== 0x03) {
+      throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
+    }
+
+    const error = QuicError.fromBuffer(bufv)
+    const streamID = StreamID.fromBuffer(bufv, 4)
+    bufv.v.walk(2)
+    if (bufv.length < bufv.v.end) {
+      throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
+    }
+    const reasonPhraseLen = bufv.readUInt16LE(bufv.v.start, true)
+    if (reasonPhraseLen > 0) {
+      bufv.v.walk(reasonPhraseLen)
+      if (bufv.length < bufv.v.end) {
+        throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
+      }
+      error.message = bufv.toString('utf8', bufv.v.start, bufv.v.end)
+    }
+    return new GoAwayFrame(streamID, error)
+  }
+
   streamID: StreamID
   error: QuicError
   constructor (lastGoodStreamID: StreamID, error: QuicError) {
@@ -976,14 +1111,14 @@ export class GoAwayFrame extends Frame {
   }
 
   byteLen (): number {
-    let reasonPhrase = this.error.message
-    let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
+    const reasonPhrase = this.error.message
+    const reasonPhraseLen = reasonPhrase !== '' ? Buffer.byteLength(reasonPhrase) : 0
     return 11 + reasonPhraseLen
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    let reasonPhrase = this.error.message
-    let reasonPhraseLen = reasonPhrase ? Buffer.byteLength(reasonPhrase) : 0
+    const reasonPhrase = this.error.message
+    const reasonPhraseLen = reasonPhrase !== '' ? Buffer.byteLength(reasonPhrase) : 0
 
     bufv.v.walk(1)
     bufv.writeUInt8(this.type, bufv.v.start)
@@ -991,28 +1126,10 @@ export class GoAwayFrame extends Frame {
     this.streamID.writeTo(bufv, true)
     bufv.v.walk(2)
     bufv.writeUInt16LE(reasonPhraseLen, bufv.v.start, true)
-    if (reasonPhrase) {
+    if (reasonPhrase !== '') {
       bufv.v.walk(reasonPhraseLen)
       bufv.write(reasonPhrase, bufv.v.start, reasonPhraseLen)
     }
     return bufv
-  }
-
-  static fromBuffer (bufv: BufferVisitor): GoAwayFrame {
-    bufv.v.walk(1)
-    let type = bufv[bufv.v.start]
-    if (type !== 0x03) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-
-    let error = QuicError.fromBuffer(bufv)
-    let streamID = StreamID.fromBuffer(bufv, 4)
-    bufv.v.walk(2)
-    if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-    let reasonPhraseLen = bufv.readUInt16LE(bufv.v.start, true)
-    if (reasonPhraseLen) {
-      bufv.v.walk(reasonPhraseLen)
-      if (bufv.length < bufv.v.end) throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-      error.message = bufv.toString('utf8', bufv.v.start, bufv.v.end)
-    }
-    return new GoAwayFrame(streamID, error)
   }
 }

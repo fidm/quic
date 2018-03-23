@@ -15,7 +15,7 @@ import { bufferFromBytes } from './common'
 
 suite('QUIC errors', function () {
   it('new QuicError(0)', function () {
-    let err = new QuicError(0)
+    const err = new QuicError(0)
     strictEqual(err.code, 0)
     strictEqual(err.name, 'QUIC_NO_ERROR')
     strictEqual(err.message, '')
@@ -25,7 +25,7 @@ suite('QUIC errors', function () {
   })
 
   it('new QuicError(1)', function () {
-    let err = new QuicError(1)
+    const err = new QuicError(1)
     strictEqual(err.code, 1)
     strictEqual(err.name, 'QUIC_INTERNAL_ERROR')
     strictEqual(err.message, 'Connection has reached an invalid state.')
@@ -35,7 +35,7 @@ suite('QUIC errors', function () {
   })
 
   it('new QuicError(UNKNOWN_ERROR)', function () {
-    let err = new QuicError('xxxxxxxx')
+    const err = new QuicError('xxxxxxxx')
     strictEqual(err.code, 0xffffffff)
     strictEqual(err.name, 'INVALID_ERROR_CODE')
     strictEqual(err.message, 'xxxxxxxx')

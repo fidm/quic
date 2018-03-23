@@ -15,18 +15,25 @@ export interface BufferVisitor extends Buffer {
 
 /** Visitor representing a Buffer visitor. */
 export class Visitor {
+  static wrap (buf: Buffer): BufferVisitor {
+    Object.assign(buf, { v: new Visitor() })
+    return buf as BufferVisitor
+  }
+
   start: number
   end: number
-
   constructor (start: number = 0, end: number = 0) {
     this.start = start
-    this.end = end || this.start
+    this.end = end > start ? end : start
   }
 
   reset (start: number = 0, end: number = 0): this {
     this.start = start
-    if (end >= this.start) this.end = end
-    else if (this.end < this.start) this.end = this.start
+    if (end >= this.start) {
+      this.end = end
+    } else if (this.end < this.start) {
+      this.end = this.start
+    }
     return this
   }
 
@@ -35,11 +42,6 @@ export class Visitor {
     this.end += steps
     return this
   }
-
-  static wrap (buf: Buffer): BufferVisitor {
-    Object.assign(buf, { v: new Visitor() })
-    return buf as BufferVisitor
-  }
 }
 
 export interface ToBuffer {
@@ -47,8 +49,8 @@ export interface ToBuffer {
   writeTo (bufv: BufferVisitor): BufferVisitor
 }
 
-export function toBuffer(obj: ToBuffer): BufferVisitor {
-  let bufv = obj.writeTo(Visitor.wrap(Buffer.alloc(obj.byteLen())))
+export function toBuffer (obj: ToBuffer): BufferVisitor {
+  const bufv = obj.writeTo(Visitor.wrap(Buffer.alloc(obj.byteLen())))
   bufv.v.reset(0, 0)
   return bufv
 }
@@ -69,25 +71,29 @@ export const Float16MaxValue = 0x3FFC0000000
 
 export function readUFloat16 (buf: Buffer, offset: number = 0): number {
   let value = buf.readUInt16LE(offset)
-  if (value < Float16MantissaEffectiveValue) return value
+  if (value < Float16MantissaEffectiveValue) {
+    return value
+  }
   let exponent = value >> Float16MantissaBits
   --exponent
   value -= exponent << Float16MantissaBits
   // we can only use binary bitwise operators in 32 bits
-  let res = value * Math.pow(2, exponent)
+  const res = value * Math.pow(2, exponent)
   return res < Float16MaxValue ? res : Float16MaxValue
 }
 
 export function writeUFloat16 (buf: Buffer, value: number, offset: number): Buffer {
   let res = 0
-  if (value < Float16MantissaEffectiveValue) res = value
-  else if (value >= Float16MaxValue) res = 0xffff
-  else {
+  if (value < Float16MantissaEffectiveValue) {
+    res = value
+  } else if (value >= Float16MaxValue) {
+    res = 0xffff
+  } else {
     let exponent = 0
-    for (let offset = 16; offset >= 1; offset /= 2) {
-      if (value >= (1 << (Float16MantissaBits + offset))) {
-        exponent += offset
-        value /= Math.pow(2, offset)
+    for (let i = 16; i >= 1; i /= 2) {
+      if (value >= (1 << (Float16MantissaBits + i))) {
+        exponent += i
+        value /= Math.pow(2, i)
       }
     }
     res = Math.floor(value) + (exponent << Float16MantissaBits)
@@ -97,11 +103,11 @@ export function writeUFloat16 (buf: Buffer, value: number, offset: number): Buff
 }
 
 export class Queue<T> {
+
   private tail: T[]
   private head: T[]
   private offset: number
   private hLength: number
-
   constructor () {
     this.tail = []
     this.head = []
@@ -122,14 +128,18 @@ export class Queue<T> {
   }
 
   pop (): T | undefined {
-    if (this.tail.length) return this.tail.pop()
-    if (!this.hLength) return
+    if (this.tail.length > 0) {
+      return this.tail.pop()
+    }
+    if (this.hLength === 0) {
+      return
+    }
     this.hLength--
     return this.head.pop()
   }
 
   unshift (item: T): void {
-    if (!this.offset) {
+    if (this.offset === 0) {
       this.hLength++
       this.head.unshift(item)
     } else {
@@ -140,9 +150,11 @@ export class Queue<T> {
 
   shift (): T | undefined {
     if (this.offset === this.hLength) {
-      if (!this.tail.length) return
+      if (this.tail.length === 0) {
+        return
+      }
 
-      let tmp = this.head
+      const tmp = this.head
       tmp.length = 0
       this.head = this.tail
       this.tail = tmp
@@ -161,11 +173,15 @@ export class Queue<T> {
 
   migrateTo (queue: Queue<T>): Queue<T> {
     let i = this.offset
-    let len = this.tail.length
-    while (i < this.hLength) queue.push(this.head[i++])
+    const len = this.tail.length
+    while (i < this.hLength) {
+      queue.push(this.head[i++])
+    }
 
     i = 0
-    while (i < len) queue.push(this.tail[i++])
+    while (i < len) {
+      queue.push(this.tail[i++])
+    }
     this.offset = this.hLength = this.head.length = this.tail.length = 0
     return queue
   }
