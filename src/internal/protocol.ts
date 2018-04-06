@@ -240,8 +240,14 @@ export class PacketNumber extends Protocol {
   }
 
   nextNumber (): PacketNumber {
-    const value = this[kVal] + 1
-    return new PacketNumber(value <= 0xffffffffffff ? value : 1)
+    return new PacketNumber(this[kVal] + 1)
+  }
+
+  isLimitReached (): boolean {
+    // If a QUIC endpoint transmits a packet with a packet number of (2^64-1),
+    // that packet must include a CONNECTION_CLOSE frame with an error code of QUIC_SEQUENCE_NUMBER_LIMIT_REACHED,
+    // and the endpoint must not transmit any additional packets.
+    return this[kVal] >= 0xffffffffffff // but here 2^48
   }
 
   delta (other: PacketNumber): number {

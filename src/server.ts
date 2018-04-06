@@ -133,7 +133,7 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
   // If it does, we only read a truncated packet, which will then end up undecryptable
   if (msg.length > MaxReceivePacketSize) {
     debug(`receive too large data: ${msg.length} bytes`)
-    msg = msg.slice(0, MaxReceivePacketSize)
+    // msg = msg.slice(0, MaxReceivePacketSize)
   }
 
   const senderAddr = new SocketAddress(rinfo)

@@ -97,9 +97,15 @@ suite('QUIC Protocol', function () {
     it('packetNumber.nextNumber', function () {
       let packetNumber = new PacketNumber(1)
       packetNumber = packetNumber.nextNumber()
+      strictEqual(packetNumber.isLimitReached(), false)
       strictEqual(packetNumber.valueOf(), 2)
       strictEqual(packetNumber.nextNumber().valueOf(), 3)
-      strictEqual(new PacketNumber(0xffffffffffff).nextNumber().valueOf(), 1)
+
+      packetNumber = new PacketNumber(0xffffffffffff - 1)
+      strictEqual(packetNumber.isLimitReached(), false)
+      packetNumber = packetNumber.nextNumber()
+      strictEqual(packetNumber.isLimitReached(), true)
+      throws(() => packetNumber = packetNumber.nextNumber())
     })
 
     it('packetNumber.flagBits()', function () {

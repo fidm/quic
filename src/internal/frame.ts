@@ -145,14 +145,22 @@ export class StreamFrame extends Frame {
 
     let data = null
     if ((type & 0b100000) > 0) {
+      // a Data Length is present in the STREAM header
       bufv.v.walk(2)
       if (bufv.length < bufv.v.end) {
         throw new QuicError('QUIC_INVALID_STREAM_DATA')
       }
-      bufv.v.walk(bufv.readUInt16LE(bufv.v.start, true))
-      if (bufv.length < bufv.v.end) {
-        throw new QuicError('QUIC_INVALID_STREAM_DATA')
+      const len = bufv.readUInt16LE(bufv.v.start, true)
+      if (len > 0) {
+        bufv.v.walk(len)
+        if (bufv.length < bufv.v.end) {
+          throw new QuicError('QUIC_INVALID_STREAM_DATA')
+        }
+        data = bufv.slice(bufv.v.start, bufv.v.end)
       }
+    } else if (bufv.length > bufv.v.end) {
+      // the STREAM frame extends to the end of the Packet.
+      bufv.v.walk(bufv.length - bufv.v.end)
       data = bufv.slice(bufv.v.start, bufv.v.end)
     }
 
@@ -284,7 +292,7 @@ export class AckFrame extends Frame {
   //     Only present if the 'n' flag bit is 1.
   //   - Ack block length: A variable-sized packet number delta. For the first missing packet range,
   //     the ack block starts at largest acked. For the first ack block, the length of the ack block is
-  //     1 + this value.  For subsequent ack blocks, it is the length of the ack block.  For non-first blocks,
+  //     1 + this value.  For subsequent ack blocks, it is the length of the ack block. For non-first blocks,
   //     a value of 0 indicates more than 256 packets in a row were lost.
   //   - Gap to next block: An 8-bit unsigned value specifying the number of packets between ack blocks.
   // * Timestamp Section:
@@ -308,11 +316,9 @@ export class AckFrame extends Frame {
 
     const frame = new AckFrame()
     const hasMissingRanges = (type & 0b00100000) > 0
-    let missingNumberDeltaLen = 2 * (type & 0b11)
-    if (missingNumberDeltaLen === 0) {
-      missingNumberDeltaLen = 1
-    }
-    frame.largestAcked = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((type & 0b1100) >> 2)).valueOf()
+    const missingNumberDeltaLen = PacketNumber.flagToByteLen(type & 0b11)
+    const largestAckedNumber = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((type >> 2) & 0b11))
+    frame.largestAcked = largestAckedNumber.valueOf()
 
     bufv.v.walk(2)
     if (bufv.length < bufv.v.end) {
@@ -336,13 +342,12 @@ export class AckFrame extends Frame {
       throw new QuicError('QUIC_INVALID_FRAME_DATA')
     }
     let ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
-    const largestAcked = frame.largestAcked
-    if ((largestAcked > 0 && ackBlockLength < 1) || ackBlockLength > largestAcked) {
+    if ((frame.largestAcked > 0 && ackBlockLength < 1) || ackBlockLength > frame.largestAcked) {
       throw new QuicError('QUIC_INVALID_FRAME_DATA')
     }
 
     if (hasMissingRanges) {
-      let ackRange = new AckRange(largestAcked - ackBlockLength + 1, largestAcked)
+      let ackRange = new AckRange(frame.largestAcked - ackBlockLength + 1, frame.largestAcked)
       frame.ackRanges.push(ackRange)
 
       let inLongBlock = false
@@ -360,12 +365,13 @@ export class AckFrame extends Frame {
         }
         ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
 
+        const lastAckRange = frame.ackRanges[frame.ackRanges.length - 1]
         if (inLongBlock) {
-          frame.ackRanges[frame.ackRanges.length - 1].first -= gap + ackBlockLength
-          frame.ackRanges[frame.ackRanges.length - 1].last -= gap
+          lastAckRange.first -= gap + ackBlockLength
+          lastAckRange.last -= gap
         } else {
           lastRangeComplete = false
-          ackRange = new AckRange(0, frame.ackRanges[frame.ackRanges.length - 1].first - gap - 1)
+          ackRange = new AckRange(0, lastAckRange.first - gap - 1)
           ackRange.first = ackRange.last - ackBlockLength + 1
           frame.ackRanges.push(ackRange)
         }
@@ -386,7 +392,7 @@ export class AckFrame extends Frame {
       if (frame.largestAcked === 0) {
         frame.lowestAcked = 0
       } else {
-        frame.lowestAcked = largestAcked - ackBlockLength + 1
+        frame.lowestAcked = frame.largestAcked - ackBlockLength + 1
       }
     }
 
