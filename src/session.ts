@@ -4,7 +4,6 @@
 // **License:** MIT
 
 import { EventEmitter } from 'events'
-import { Socket } from 'dgram'
 import {
   SessionType,
   StreamID,
@@ -31,7 +30,9 @@ import {
   ConnectionCloseFrame,
 } from './internal/frame'
 import { Packet, RegularPacket } from './internal/packet'
+import { QuicError } from './internal/error'
 
+import { Socket } from './socket'
 import { Stream } from './stream'
 import { BufferVisitor, toBuffer } from './internal/common'
 
@@ -120,7 +121,10 @@ export class Session extends EventEmitter {
     const buf = toBuffer(packet)
     const socket = this[kSocket]
     if (socket == null) {
-      return callback(new Error('UDP not connect'))
+      return callback(new Error('the underlying socket not connect'))
+    }
+    if (socket[kState].destroyed) {
+      return callback(new Error('the underlying socket closed'))
     }
     socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
   }
@@ -157,7 +161,7 @@ export class Session extends EventEmitter {
           this.emit('ping')
           break
         case 'CONNECTION_CLOSE':
-          this._closeLocal((frame as ConnectionCloseFrame).error)
+          this.destroy((frame as ConnectionCloseFrame).error)
           break
         case 'GOAWAY':
           break
@@ -212,20 +216,38 @@ export class Session extends EventEmitter {
     return
   }
 
-  // Graceful or immediate shutdown of the Session. Graceful shutdown
-  // is only supported on the server-side
-  close (_err: any) {
-    return
+  close (err: any): Promise<any> {
+    return new Promise((resolve) => {
+      if (this[kState].destroyed) {
+        return resolve()
+      }
+
+      this[kState].destroyed = true
+      this._sendFrame(new ConnectionCloseFrame(QuicError.fromError(err)), (e: any) => {
+        if (e != null) {
+          this.emit('error', e)
+        }
+        resolve()
+        this.emit('close')
+      })
+    })
   }
 
-  _closeRemote (_err: any) {
-    return
-  }
-  _closeLocal (_err: any) {
-    return
-  }
+  destroy (err: any) {
+    const socket = this[kSocket]
+    if (socket != null && !socket[kState].destroyed) {
+      socket.close()
+      socket[kState].destroyed = true
+    }
 
-  destroy () {
+    if (err != null) {
+      this.emit('error', err)
+    }
+
+    if (!this[kState].destroyed) {
+      this[kState].destroyed = true
+      this.emit('close')
+    }
     return
   }
 

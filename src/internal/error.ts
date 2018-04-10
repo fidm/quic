@@ -13,11 +13,11 @@ const INVALID_RST_STREAM_ERROR = { name: 'INVALID_RST_STREAM_ERROR_CODE', code: 
 // https://github.com/google/proto-quic/blob/master/src/net/quic/core/quic_error_codes.h
 /** QuicError representing a QUIC Error. */
 export class QuicError extends Error {
-  static fromError (err: any = INVALID_ERROR): QuicError {
+  static fromError (err: any = errors.QUIC_NO_ERROR): QuicError {
     if (err instanceof QuicError) {
       return err
     }
-    return new QuicError(err.code || err.name)
+    return new QuicError(err.code != null ? err.code : err.name)
   }
 
   static fromBuffer (bufv: BufferVisitor): QuicError {
@@ -52,11 +52,11 @@ export class QuicError extends Error {
 
 /** QuicError representing a QUIC Stream Error. */
 export class QuicStreamError extends Error {
-  static fromError (err: any = INVALID_RST_STREAM_ERROR): QuicStreamError {
+  static fromError (err: any = streamErrors.QUIC_STREAM_NO_ERROR): QuicStreamError {
     if (err instanceof QuicStreamError) {
       return err
     }
-    return new QuicStreamError(err.code || err.name)
+    return new QuicStreamError(err.code != null ? err.code : err.name)
   }
 
   static fromBuffer (bufv: BufferVisitor): QuicStreamError {

@@ -5,7 +5,6 @@
 
 import { debuglog } from 'util'
 import { EventEmitter } from 'events'
-import { createSocket, Socket, AddressInfo } from 'dgram'
 
 import { lookup, Visitor } from './internal/common'
 import { parsePacket, ResetPacket, NegotiationPacket, RegularPacket } from './internal/packet'
@@ -25,6 +24,7 @@ import {
   isSupportedVersion,
 } from './internal/protocol'
 
+import { createSocket, Socket, AddressInfo } from './socket'
 import { Session } from './session'
 
 const debug = debuglog('quic')
@@ -46,6 +46,14 @@ export class ServerSession extends Session {
   }
 }
 
+export class ServerState {
+  destroyed: boolean
+
+  constructor () {
+    this.destroyed = false
+  }
+}
+
 //
 // *************** Server ***************
 //
@@ -54,6 +62,7 @@ export class Server extends EventEmitter {
   // Event: 'connection'
 
   [kSocket]: Socket | null
+  [kState]: ServerState
   localFamily: string
   localAddress: string
   localPort: number
@@ -67,6 +76,7 @@ export class Server extends EventEmitter {
     this.localPort = 0
     this.listening = false
     this.conns = new Map()
+    this[kState] = new ServerState()
   }
 
   address (): AddressInfo {
@@ -81,7 +91,7 @@ export class Server extends EventEmitter {
     const addr = await lookup(address)
     debug(`server listen: ${address}, ${port}`, addr)
 
-    const socket = this[kSocket] = createSocket(addr.family === 4 ? 'udp4' : 'udp6')
+    const socket = this[kSocket] = createSocket(addr.family)
     socket
       .on('error', (err) => this.emit('error', err))
       .on('close', () => serverOnClose(this))
@@ -107,7 +117,15 @@ export class Server extends EventEmitter {
     return res
   }
 
-  close (_err: any) {
+  close (err: any) {
+    if (this[kState].destroyed) {
+      return
+    }
+    this[kState].destroyed = true
+    for (const session of this.conns.values()) {
+      session.close(err)
+    }
+    this.emit('close')
     return
   }
 
@@ -121,6 +139,17 @@ export class Server extends EventEmitter {
 
   unref () {
     return
+  }
+}
+
+function serverOnClose (server: Server) {
+  server.emit('error', new Error('the underlying socket closed'))
+  for (const session of server.conns.values()) {
+    session.destroy(new Error('the underlying socket closed'))
+  }
+  if (!server[kState].destroyed) {
+    server[kState].destroyed = true
+    server.emit('close')
   }
 }
 
@@ -155,6 +184,9 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
   if (session == null) {
     session = new ServerSession(packet.connectionID, socket, server)
     server.conns.set(connectionID, session)
+  } else if (session.destroyed) {
+    // Late packet for closed session
+    return
   }
 
   if (packet.isReset()) {
@@ -209,8 +241,4 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
 
   session[kState].bytesRead += msg.length
   session._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
-}
-
-function serverOnClose (_server: Server) {
-  return
 }

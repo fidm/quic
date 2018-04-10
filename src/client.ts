@@ -3,8 +3,7 @@
 //
 // **License:** MIT
 
-import { createSocket, AddressInfo } from 'dgram'
-
+import { debuglog } from 'util'
 import { lookup, Visitor } from './internal/common'
 import { parsePacket, ResetPacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import { QuicError } from './internal/error'
@@ -24,8 +23,8 @@ import {
   kClientState,
 } from './internal/symbol'
 
+import { createSocket, AddressInfo } from './socket'
 import { Session } from './session'
-import { debuglog } from 'util'
 
 const debug = debuglog('quic')
 
@@ -53,10 +52,10 @@ export class Client extends Session {
     this[kState].remoteFamily = 'IPv' + addr.family
     this[kState].remoteAddr = new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
 
-    const socket = this[kSocket] = createSocket(addr.family === 4 ? 'udp4' : 'udp6')
+    const socket = this[kSocket] = createSocket(addr.family)
     socket
       .on('error', (err) => this.emit('error', err))
-      .on('close', () => clientOnClose(this))
+      .on('close', () => this.destroy(new Error('the underlying socket closed')))
       .on('message', (msg, rinfo) => clientOnMessage(this, msg, rinfo))
 
     const res = new Promise((resolve, reject) => {
@@ -87,7 +86,7 @@ export class ClientState {
 
 function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
   debug(`client message: session ${client.id}, ${msg.length} bytes`, rinfo)
-  if (msg.length === 0) {
+  if (msg.length === 0 || client.destroyed) {
     return
   }
   // The packet size should not exceed protocol.MaxReceivePacketSize bytes
@@ -165,8 +164,4 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
 
   client[kState].bytesRead += msg.length
   client._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
-}
-
-function clientOnClose (_session: Client) {
-  return
 }
