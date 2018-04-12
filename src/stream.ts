@@ -4,7 +4,7 @@
 // **License:** MIT
 
 import { Duplex } from 'stream'
-import { QuicStreamError } from './internal/error'
+import { QuicStreamError, streamErrors } from './internal/error'
 import {
   Offset,
   StreamID,
@@ -44,6 +44,7 @@ export class Stream extends Duplex {
     this[kID] = streamID
     this[kSession] = session
     this[kState] = new StreamState()
+    this.once('close', () => this[kState].lastActivityTime = Date.now())
   }
 
   // The socket owned by this session
@@ -59,27 +60,21 @@ export class Stream extends Duplex {
     return this[kState].aborted
   }
 
-  // get closed (): boolean {
-  // }
-
-  // get destroyed (): boolean {}
-
-  close (_code: any): void {
-    return
+  get destroyed (): boolean {
+    return this[kState].destroyed
   }
 
-  // Reset closes the stream with an error.
-  reset (err: Error): Promise<number> {
+  // close closes the stream with an error.
+  close (err: any): Promise<any> {
     this[kState].localFIN = true
     const offset = this[kState].writeOffset
     const rstStreamFrame = new RstStreamFrame(this[kID], offset, QuicStreamError.fromError(err))
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       this[kSession]._sendFrame(rstStreamFrame, (e) => {
         if (e != null) {
-          reject(e)
-        } else {
-          resolve(offset.valueOf())
+          this.emit('error', e)
         }
+        resolve()
       })
     })
   }
@@ -95,6 +90,18 @@ export class Stream extends Duplex {
     }
 
     this._read(MaxStreamBufferSize * 10) // try to read all
+  }
+
+  _handleRstFrame (frame: RstStreamFrame) {
+    this[kState].remoteFIN = true
+    this[kState].readQueue.setEndOffset(frame.offset.valueOf())
+    if (this[kState].localFIN) {
+      this.destroy(frame.error)
+    } else {
+      this.emit('error', frame.error)
+      this.close(streamErrors.QUIC_RST_ACKNOWLEDGEMENT)
+    }
+    return
   }
 
   _flushData (shouldFin: boolean, callback: (...args: any[]) => void): void {
@@ -150,6 +157,17 @@ export class Stream extends Duplex {
       this.push(null)
     }
   }
+
+  _destroy (_err: any, _callback: (...args: any[]) => void): void {
+    const state = this[kState]
+    state.localFIN = true
+    state.remoteFIN = true
+    state.aborted = true
+    state.destroyed = true
+    state.finished = true
+    state.readQueue.reset()
+    state.bufferList.reset()
+  }
 }
 
 class StreamState {
@@ -157,9 +175,11 @@ class StreamState {
   remoteFIN: boolean
   ended: boolean
   aborted: boolean
+  destroyed: boolean
   finished: boolean
   bytesRead: number
   bytesWritten: number
+  lastActivityTime: number
   readQueue: StreamFramesSorter
   bufferList: StreamDataList
   writeOffset: Offset
@@ -168,9 +188,11 @@ class StreamState {
     this.remoteFIN = false // remote endpoint should not send data
     this.ended = false
     this.aborted = false
+    this.destroyed = true
     this.finished = false
     this.bytesRead = 0
     this.bytesWritten = 0
+    this.lastActivityTime = Date.now()
     this.readQueue = new StreamFramesSorter()
     this.bufferList = new StreamDataList()
     this.writeOffset = new Offset(0)
@@ -196,7 +218,13 @@ class StreamDataList {
     this.length = 0
   }
 
-  push (buf: Buffer): void {
+  reset () {
+    this.head = null
+    this.tail = null
+    this.length = 0
+  }
+
+  push (buf: Buffer) {
     const entry = new StreamDataEntry(buf, null)
 
     if (this.tail != null) {
@@ -254,6 +282,12 @@ class StreamFramesSorter {
   readOffset: number
   endOffset: number
   constructor () {
+    this.head = null
+    this.readOffset = 0
+    this.endOffset = -1
+  }
+
+  reset () {
     this.head = null
     this.readOffset = 0
     this.endOffset = -1

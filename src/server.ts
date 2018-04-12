@@ -7,14 +7,15 @@ import { debuglog } from 'util'
 import { EventEmitter } from 'events'
 
 import { lookup, Visitor } from './internal/common'
+import { QuicError, errors } from './internal/error'
 import { parsePacket, ResetPacket, NegotiationPacket, RegularPacket } from './internal/packet'
-// import { QuicError } from './internal/error'
 import {
   kID,
   kSocket,
   kState,
   kVersion,
   kServer,
+  kIntervalCheck,
 } from './internal/symbol'
 import {
   MaxReceivePacketSize,
@@ -68,6 +69,7 @@ export class Server extends EventEmitter {
   localPort: number
   listening: boolean
   conns: Map<string, ServerSession>
+  [kIntervalCheck]: NodeJS.Timer
   constructor () {
     super()
     this[kSocket] = null
@@ -77,6 +79,10 @@ export class Server extends EventEmitter {
     this.listening = false
     this.conns = new Map()
     this[kState] = new ServerState()
+    this[kIntervalCheck] = setInterval(() => {
+      const time = Date.now()
+      this._intervalCheck(time)
+    }, 1024)
   }
 
   address (): AddressInfo {
@@ -117,6 +123,24 @@ export class Server extends EventEmitter {
     return res
   }
 
+  _intervalCheck (time: number) {
+    for (const session of this.conns.values()) {
+      // server session idle timeout
+      if (time - session[kState].lastNetworkActivityTime > session[kState].idleTimeout) {
+        // When a server decides to terminate an idle connection,
+        // it should not notify the client to avoid waking up the radio on mobile devices.
+        if (!session.destroyed) {
+          session.destroy(QuicError.fromError(errors.QUIC_NETWORK_IDLE_TIMEOUT))
+        }
+        this.conns.delete(session.id)
+        return
+      }
+      // other session check
+      session._intervalCheck(time)
+    }
+    return
+  }
+
   close (err: any) {
     if (this[kState].destroyed) {
       return
@@ -147,6 +171,7 @@ function serverOnClose (server: Server) {
   for (const session of server.conns.values()) {
     session.destroy(new Error('the underlying socket closed'))
   }
+  server.conns.clear()
   if (!server[kState].destroyed) {
     server[kState].destroyed = true
     server.emit('close')
@@ -178,10 +203,18 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     return
   }
 
+  if (packet.isNegotiation()) {
+    debug(`Received a unexpect Negotiation packet. Ignoring.`)
+    return
+  }
+
   const connectionID = packet.connectionID.valueOf()
   let session = server.conns.get(connectionID)
   const newSession = session == null
   if (session == null) {
+    if (packet.isReset()) {
+      return
+    }
     session = new ServerSession(packet.connectionID, socket, server)
     server.conns.set(connectionID, session)
   } else if (session.destroyed) {
@@ -190,10 +223,6 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
   }
 
   if (packet.isReset()) {
-    if (newSession) {
-      server.conns.delete(connectionID)
-      return
-    }
     // check if the remote address and the connection ID match
     // otherwise this might be an attacker trying to inject a PUBLIC_RESET to kill the connection
     const remoteAddr = session[kState].remoteAddr
@@ -202,8 +231,8 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
       return
     }
 
-    const packetNumber = (packet as ResetPacket).packetNumber
-    session._closeRemote(new Error(`Received Public Reset, rejected packet number: ${packetNumber}.`))
+    debug(`Public Reset, rejected packet number: ${(packet as ResetPacket).packetNumber}.`)
+    session.destroy(QuicError.fromError(errors.QUIC_PUBLIC_RESET))
     return
   }
 
@@ -217,25 +246,18 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     server.emit('session', session)
   }
 
-  if (packet.isNegotiation()) {
-    debug(`Received a unexpect Negotiation packet. Ignoring.`)
-    return
-  }
-
   if (!session[kState].versionNegotiated) {
     const version = (packet as RegularPacket).version
-    if (version !== '') {
-      if (!isSupportedVersion(version)) {
-        const negotiationPacket = NegotiationPacket.fromConnectionID(session[kID])
-        session._sendPacket(negotiationPacket, (err) => {
-          if (err != null && session != null) {
-            session._closeRemote(err)
-          }
-        })
-        return
-      }
-      session[kVersion] = version
+    if (!isSupportedVersion(version)) {
+      const negotiationPacket = NegotiationPacket.fromConnectionID(session[kID])
+      session._sendPacket(negotiationPacket, (err) => {
+        if (err != null && session != null) {
+          session.close(err)
+        }
+      })
+      return
     }
+    session[kVersion] = version
     session[kState].versionNegotiated = true
   }
 

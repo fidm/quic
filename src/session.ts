@@ -10,6 +10,8 @@ import {
   PacketNumber,
   ConnectionID,
   SocketAddress,
+  QuicTag,
+  DefaultIdleTimeout,
  } from './internal/protocol'
 import {
   kID,
@@ -21,15 +23,18 @@ import {
   kACKHandler,
   kNextStreamID,
   kNextPacketNumber,
+  kIntervalCheck,
 } from './internal/symbol'
 import {
   Frame,
   PingFrame,
   StreamFrame,
+  RstStreamFrame,
   AckFrame,
+  GoAwayFrame,
   ConnectionCloseFrame,
 } from './internal/frame'
-import { Packet, RegularPacket } from './internal/packet'
+import { Packet, ResetPacket, RegularPacket } from './internal/packet'
 import { QuicError } from './internal/error'
 
 import { Socket } from './socket'
@@ -48,6 +53,7 @@ export class Session extends EventEmitter {
 
   protected [kID]: ConnectionID
   protected [kType]: SessionType
+  protected [kIntervalCheck]: NodeJS.Timer | null
   protected [kStreams]: Map<number, Stream>
   protected [kNextStreamID]: StreamID
   protected [kState]: SessionState
@@ -66,6 +72,7 @@ export class Session extends EventEmitter {
     this[kACKHandler] = new ACKHandler()
     this[kSocket] = null
     this[kVersion] = ''
+    this[kIntervalCheck] = null
     this[kNextPacketNumber] = new PacketNumber(1)
     this.setMaxListeners((2 ** 31) - 1)
   }
@@ -121,7 +128,7 @@ export class Session extends EventEmitter {
     const buf = toBuffer(packet)
     const socket = this[kSocket]
     if (socket == null) {
-      return callback(new Error('the underlying socket not connect'))
+      return callback(new Error('the underlying socket not connect or destroyed'))
     }
     if (socket[kState].destroyed) {
       return callback(new Error('the underlying socket closed'))
@@ -156,6 +163,7 @@ export class Session extends EventEmitter {
         case 'PADDING':
           break
         case 'RST_STREAM':
+          this._handleRstStreamFrame(frame as RstStreamFrame)
           break
         case 'PING':
           this.emit('ping')
@@ -164,40 +172,76 @@ export class Session extends EventEmitter {
           this.destroy((frame as ConnectionCloseFrame).error)
           break
         case 'GOAWAY':
+          this[kState].shuttingDown = true
           break
       }
     }
   }
 
-  /**
-   * @param {StreamFrame} frame
-   */
   _handleStreamFrame (frame: StreamFrame) {
     const streamID = frame.streamID.valueOf()
     let stream = this[kStreams].get(streamID)
     if (stream == null) {
+      if (this[kState].shuttingDown) {
+        return
+      }
       stream = new Stream(frame.streamID, this, {})
       this[kStreams].set(streamID, stream)
       this.emit('stream', stream)
+    } else if (stream.destroyed) {
+      return
     }
     // TODO: ACK and reorder by offset
     stream._handleFrame(frame)
+  }
+
+  _handleRstStreamFrame (frame: RstStreamFrame) {
+    const streamID = frame.streamID.valueOf()
+    const stream = this[kStreams].get(streamID)
+    if (stream == null || stream.destroyed) {
+      return
+    }
+    // TODO: ACK and reorder by offset
+    stream._handleRstFrame(frame)
   }
 
   _handleACKFrame (_frame: AckFrame) {
     this[kACKHandler].ack(_frame)
   }
 
+  _intervalCheck (time: number) {
+    for (const stream of this[kStreams].values()) {
+      // clearup idle stream
+      if (stream.destroyed && (time - stream[kState].lastActivityTime > this[kState].idleTimeout)) {
+        this[kStreams].delete(stream.id)
+      }
+    }
+    return
+  }
+
   request (options: any) {
+    if (this[kState].shuttingDown) {
+      throw new Error('connection goaway')
+    }
     const streamID = this[kNextStreamID]
     this[kNextStreamID] = streamID.nextID()
     const stream = new Stream(streamID, this, (options == null ? {} : options))
-    this[kStreams].set(streamID.valueOf(), stream)
+    const _streamID = streamID.valueOf()
+    this[kStreams].set(_streamID, stream)
     return stream
   }
 
-  goaway (_code: number, _lastStreamID: StreamID, _opaqueData: Buffer) {
-    return
+  goaway (err: any): Promise<void> {
+    return new Promise((resolve) => {
+      if (this[kState].shuttingDown) {
+        return resolve()
+      }
+
+      this[kState].shuttingDown = true
+      this._sendFrame(new GoAwayFrame(this[kNextStreamID].prevID(), QuicError.fromError(err)), (_e: any) => {
+        resolve()
+      })
+    })
   }
 
   ping (): Promise<any> {
@@ -216,29 +260,59 @@ export class Session extends EventEmitter {
     return
   }
 
-  close (err: any): Promise<any> {
+  close (err: any): Promise<void> {
     return new Promise((resolve) => {
       if (this[kState].destroyed) {
         return resolve()
       }
 
-      this[kState].destroyed = true
       this._sendFrame(new ConnectionCloseFrame(QuicError.fromError(err)), (e: any) => {
-        if (e != null) {
-          this.emit('error', e)
-        }
+        this.destroy(e)
         resolve()
-        this.emit('close')
+      })
+    })
+  }
+
+  reset (_err: any): Promise<void> {
+    return new Promise((resolve) => {
+      if (this[kState].destroyed) {
+        return resolve()
+      }
+
+      const tags = new QuicTag('PRST')
+      tags.setTag('RNON', Buffer.allocUnsafe(8)) // TODO
+      tags.setTag('RSEQ', toBuffer(this[kNextPacketNumber].prevNumber()))
+      const localAddr = this[kState].localAddr
+      if (localAddr != null) {
+        tags.setTag('CADR', toBuffer(localAddr))
+      }
+
+      const packet = new ResetPacket(this[kID], tags)
+      this._sendPacket(packet, (e: any) => {
+        this.destroy(e)
+        resolve()
       })
     })
   }
 
   destroy (err: any) {
     const socket = this[kSocket]
-    if (socket != null && !socket[kState].destroyed) {
-      socket.close()
-      socket[kState].destroyed = true
+    if (socket != null) {
+      if (this.isClient && !socket[kState].destroyed) {
+        socket.close()
+        socket[kState].destroyed = true
+      }
+      this[kSocket] = null
     }
+
+    for (const stream of this[kStreams].values()) {
+      stream.destroy(new Error('the underlying session destroyed'))
+    }
+    const timer = this[kIntervalCheck]
+    if (timer != null) {
+      clearInterval(timer)
+    }
+    this[kStreams].clear()
 
     if (err != null) {
       this.emit('error', err)
@@ -274,6 +348,7 @@ export class SessionState {
   pendingAck: number
   bytesRead: number
   bytesWritten: number
+  idleTimeout: number
   lastNetworkActivityTime: number
 
   destroyed: boolean
@@ -296,11 +371,12 @@ export class SessionState {
     this.pendingAck = 0
     this.bytesRead = 0
     this.bytesWritten = 0
-    this.lastNetworkActivityTime = 0
+    this.idleTimeout = DefaultIdleTimeout
+    this.lastNetworkActivityTime = Date.now()
 
     this.destroyed = false
     this.shutdown = false
-    this.shuttingDown = false
+    this.shuttingDown = false // send or receive GOAWAY
     this.versionNegotiated = false
     this.keepAlivePingSent = false
   }

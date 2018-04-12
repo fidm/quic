@@ -66,13 +66,13 @@ export enum FamilyType {
 // const InitialIdleTimeout = exports.InitialIdleTimeout = 5 * 1000 // ms
 
 // DefaultIdleTimeout is the default idle timeout, for the server
-// const DefaultIdleTimeout = exports.DefaultIdleTimeout = 30 * 1000
+export const DefaultIdleTimeout = 30 * 1000
+
+// MaxIdleTimeout is the max idle timeout
+export const MaxIdleTimeout =  10 * 60 * 1000
 
 // MaxIdleTimeoutServer is the maximum idle timeout that can be negotiated, for the server
-// const MaxIdleTimeoutServer = exports.MaxIdleTimeoutServer = 1 * 60 * 1000
-
-// MaxIdleTimeoutClient is the idle timeout that the client suggests to the server
-// const MaxIdleTimeoutClient = exports.MaxIdleTimeoutClient =  2 * 60 * 1000
+export const MaxIdleTimeoutServer = 1 * 60 * 1000
 
 // DefaultHandshakeTimeout is the default timeout for a connection until the crypto handshake succeeds.
 // const DefaultHandshakeTimeout = exports.DefaultHandshakeTimeout = 10 * 1000
@@ -243,6 +243,10 @@ export class PacketNumber extends Protocol {
     return new PacketNumber(this[kVal] + 1)
   }
 
+  prevNumber (): PacketNumber {
+    return new PacketNumber(this[kVal] - 1)
+  }
+
   isLimitReached (): boolean {
     // If a QUIC endpoint transmits a packet with a packet number of (2^64-1),
     // that packet must include a CONNECTION_CLOSE frame with an error code of QUIC_SEQUENCE_NUMBER_LIMIT_REACHED,
@@ -338,6 +342,10 @@ export class StreamID extends Protocol {
   nextID (): StreamID {
     const value = this[kVal] + 2
     return new StreamID(value <= 0xffffffff ? value : (value - 0xffffffff))
+  }
+
+  prevID (): StreamID {
+    return new StreamID(this[kVal] - 2)
   }
 
   equals (other: StreamID): boolean {

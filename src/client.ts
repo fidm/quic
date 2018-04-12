@@ -5,8 +5,8 @@
 
 import { debuglog } from 'util'
 import { lookup, Visitor } from './internal/common'
+import { QuicError, errors } from './internal/error'
 import { parsePacket, ResetPacket, NegotiationPacket, RegularPacket } from './internal/packet'
-import { QuicError } from './internal/error'
 import {
   ConnectionID,
   MaxReceivePacketSize,
@@ -21,6 +21,7 @@ import {
   kState,
   kVersion,
   kClientState,
+  kIntervalCheck,
 } from './internal/symbol'
 
 import { createSocket, AddressInfo } from './socket'
@@ -37,6 +38,16 @@ export class Client extends Session {
     super(ConnectionID.random(), SessionType.CLIENT)
     this[kVersion] = getVersion()
     this[kClientState] = new ClientState()
+    this[kIntervalCheck] = setInterval(() => {
+      const time = Date.now()
+      // client session idle timeout
+      if (time - this[kState].lastNetworkActivityTime > this[kState].idleTimeout) {
+        this.close(QuicError.fromError(errors.QUIC_NETWORK_IDLE_TIMEOUT))
+        return
+      }
+      // other session check
+      this._intervalCheck(time)
+    }, 1024)
   }
 
   async connect (port: number, address: string = 'localhost'): Promise<any> {
@@ -123,8 +134,8 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
       return
     }
 
-    const packetNumber = (packet as ResetPacket).packetNumber
-    client._closeRemote(new Error(`Received Public Reset, rejected packet number: ${packetNumber}.`))
+    debug(`Public Reset, rejected packet number: ${(packet as ResetPacket).packetNumber}.`)
+    client.destroy(QuicError.fromError(errors.QUIC_PUBLIC_RESET))
     return
   }
 

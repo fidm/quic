@@ -4,7 +4,7 @@
   "authors": [
     "Yan Qing <admin@zensh.com>"
   ],
-  "version": "0.1.1",
+  "version": "0.1.2",
   "main": "dist/index.js",
   "license": "MIT",
   "repository": {
@@ -20,14 +20,14 @@
     "udp"
   ],
   "devDependencies": {
-    "@types/node": "^9.4.7",
+    "@types/node": "^9.6.4",
     "ilog": "^1.2.1",
     "thunks": "^4.9.2",
     "tman": "^1.7.4",
     "ts-node": "^5.0.1",
     "tslint": "^5.9.1",
     "tslint-eslint-rules": "^5.1.0",
-    "typescript": "^2.7.2"
+    "typescript": "^2.8.1"
   },
   "scripts": {
     "test": "tman -r ts-node/register 'test/**/*.ts'",

@@ -5,8 +5,8 @@
 
 import { BufferVisitor } from './common'
 
-const errors = Object.create(null)
-const streamErrors = Object.create(null)
+export const errors = Object.create(null)
+export const streamErrors = Object.create(null)
 const INVALID_ERROR = { name: 'INVALID_ERROR_CODE', code: 0xffffffff }
 const INVALID_RST_STREAM_ERROR = { name: 'INVALID_RST_STREAM_ERROR_CODE', code: 0xffffffff }
 
