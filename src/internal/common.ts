@@ -119,7 +119,7 @@ export class Queue<T> {
     return this.hLength + this.tail.length - this.offset
   }
 
-  first (): T {
+  first (): T | undefined {
     return this.hLength === this.offset ? this.tail[0] : this.head[this.offset]
   }
 
@@ -162,6 +162,20 @@ export class Queue<T> {
       this.hLength = this.head.length
     }
     return this.head[this.offset++]
+  }
+
+  toArray (): T[] {
+    const arr: T[] = []
+    if (this.offset === this.hLength) {
+      for (const item of this.tail) {
+        arr.push(item)
+      }
+    } else {
+      for (let i = this.offset, l = this.head.length; i < l; i++) {
+        arr.push(this.head[i])
+      }
+    }
+    return arr
   }
 
   reset (): void {

@@ -32,6 +32,7 @@
     "no-void-expression": false,
     "number-literal-format": false,
     "ordered-imports": false,
+    "object-literal-sort-keys": [false, "match-declaration-order"],
     "prefer-function-over-method": false,
     "quotemark": false,
     "semicolon": false,

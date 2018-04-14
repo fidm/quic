@@ -22,11 +22,11 @@ import { bufferFromBytes } from '../common'
 suite('STOP_WAITING Frame', function () {
   it('new StopWaitingFrame', function () {
     const headerPacketNumber = PacketNumber.fromBuffer(bufferFromBytes([0xff, 0x1f]), 2)
-    const leastUnackedPacketNumber = PacketNumber.fromBuffer(bufferFromBytes([0xff, 0x0f]), 2)
-    const stopWaitingFrame = new StopWaitingFrame(headerPacketNumber, leastUnackedPacketNumber)
+    const leastUnacked = PacketNumber.fromBuffer(bufferFromBytes([0xff, 0x0f]), 2).valueOf()
+    const stopWaitingFrame = new StopWaitingFrame(headerPacketNumber, leastUnacked)
 
     strictEqual(stopWaitingFrame.type, 6)
-    ok(leastUnackedPacketNumber.equals(stopWaitingFrame.leastUnacked))
+    strictEqual(leastUnacked, stopWaitingFrame.leastUnacked)
     const buf = toBuffer(stopWaitingFrame)
     ok(buf.equals(bufferFromBytes([
       0x06,
@@ -37,11 +37,11 @@ suite('STOP_WAITING Frame', function () {
 
   it('parse with parseFrame', function () {
     const headerPacketNumber = PacketNumber.fromBuffer(bufferFromBytes([0xff, 0x1f]), 2)
-    const leastUnackedPacketNumber = PacketNumber.fromBuffer(bufferFromBytes([0xff, 0x0f]), 2)
-    const stopWaitingFrame = new StopWaitingFrame(headerPacketNumber, leastUnackedPacketNumber)
+    const leastUnacked = PacketNumber.fromBuffer(bufferFromBytes([0xff, 0x0f]), 2).valueOf()
+    const stopWaitingFrame = new StopWaitingFrame(headerPacketNumber, leastUnacked)
 
     strictEqual(stopWaitingFrame.type, 6)
-    ok(leastUnackedPacketNumber.equals(stopWaitingFrame.leastUnacked))
+    strictEqual(leastUnacked, stopWaitingFrame.leastUnacked)
     const buf = toBuffer(stopWaitingFrame)
     ok(buf.equals(bufferFromBytes([
       0x06,

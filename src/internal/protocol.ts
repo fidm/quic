@@ -74,6 +74,12 @@ export const MaxIdleTimeout =  10 * 60 * 1000
 // MaxIdleTimeoutServer is the maximum idle timeout that can be negotiated, for the server
 export const MaxIdleTimeoutServer = 1 * 60 * 1000
 
+export const MaxStreamWaitingTimeout = 30 * 1000
+
+// The PING frame should be used to keep a connection alive when a stream is open.
+// The default is to do this after 15 seconds of quiescence, which is much shorter than most NATs time out.
+export const PingFrameDelay = 15 * 1000
+
 // DefaultHandshakeTimeout is the default timeout for a connection until the crypto handshake succeeds.
 // const DefaultHandshakeTimeout = exports.DefaultHandshakeTimeout = 10 * 1000
 
@@ -96,6 +102,7 @@ export const MaxOffset = Number.MAX_SAFE_INTEGER
 export const MaxReceivePacketSize = 1350
 
 export const MaxStreamBufferSize = 1280 // todo
+export const MaxStreamReadCacheSize = 1024 * 256 // todo
 
 // DefaultTCPMSS is the default maximum packet size used in the Linux TCP implementation.
 // Used in QUIC for congestion window computations in bytes.
@@ -325,7 +332,8 @@ export class StreamID extends Protocol {
   }
 
   constructor (id: number) {
-    if (!Number.isInteger(id) || id < 1 || id > 0xffffffff) {
+    // StreamID(0) is used by WINDOW_UPDATE
+    if (!Number.isInteger(id) || id < 0 || id > 0xffffffff) {
       throw new Error(`invalid Stream ID ${id}`)
     }
     super(id)
@@ -410,7 +418,11 @@ export class Offset extends Protocol {
   }
 
   equals (other: Offset): boolean {
-    return (other instanceof Offset) && this.valueOf() === other.valueOf()
+    return this.valueOf() === other.valueOf()
+  }
+
+  gt (other: Offset): boolean {
+    return this.valueOf() > other.valueOf()
   }
 
   byteLen (isFull: boolean = false): number {
@@ -553,7 +565,7 @@ export class SocketAddress extends Protocol {
   valueOf () {
     return {
       address: this.address,
-      family: this.family,
+      family: this.family as string,
       port: this.port,
     }
   }
@@ -595,10 +607,6 @@ export class SocketAddress extends Protocol {
 
   toString (): string {
     return JSON.stringify(this.valueOf())
-  }
-
-  [inspect.custom] (_depth: any, _options: any) {
-    return `<SocketAddress port: ${this.port}, address: ${this.address}, family: ${this.family}>`
   }
 }
 

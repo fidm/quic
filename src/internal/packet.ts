@@ -3,6 +3,7 @@
 //
 // **License:** MIT
 
+import { inspect } from 'util'
 import { QuicError } from './error'
 import { Visitor, BufferVisitor } from './common'
 import { parseFrame, Frame } from './frame'
@@ -131,6 +132,21 @@ export abstract class Packet {
     return this instanceof RegularPacket
   }
 
+  valueOf () {
+    return {
+      connectionID: this.connectionID.valueOf(),
+      flag: this.flag,
+    }
+  }
+
+  toString (): string {
+    return JSON.stringify(this.valueOf())
+  }
+
+  [inspect.custom] (_depth: any, _options: any): string {
+    return `<${this.constructor.name} ${this.toString()}>`
+  }
+
   abstract byteLen (): number
   abstract writeTo (bufv: BufferVisitor): BufferVisitor
 }
@@ -185,6 +201,16 @@ export class ResetPacket extends Packet {
     }
   }
 
+  valueOf () {
+    return {
+      connectionID: this.connectionID.valueOf(),
+      flag: this.flag,
+      packetNumber: this.packetNumber == null ? null : this.packetNumber.valueOf(),
+      socketAddress: this.socketAddress == null ? null : this.socketAddress.valueOf(),
+      nonceProof: this.nonceProof,
+    }
+  }
+
   byteLen (): number {
     return 9 + this.tags.byteLen()
   }
@@ -235,6 +261,14 @@ export class NegotiationPacket extends Packet {
   constructor (connectionID: ConnectionID, versions: string[]) {
     super(connectionID, 0b00001001)
     this.versions = versions
+  }
+
+  valueOf () {
+    return {
+      connectionID: this.connectionID.valueOf(),
+      flag: this.flag,
+      versions: this.versions,
+    }
   }
 
   byteLen (): number {
@@ -310,6 +344,17 @@ export class RegularPacket extends Packet {
     this.version = '' // 4 byte, string
     this.nonce = nonce // 32 byte, buffer
     this.frames = []
+  }
+
+  valueOf () {
+    return {
+      connectionID: this.connectionID.valueOf(),
+      flag: this.flag,
+      version: this.version,
+      packetNumber: this.packetNumber.valueOf(),
+      nonce: this.nonce,
+      frames: this.frames.map((val) => val.valueOf()),
+    }
   }
 
   setVersion (version: string) {

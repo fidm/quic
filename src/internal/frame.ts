@@ -3,7 +3,8 @@
 //
 // **License:** MIT
 
-import { QuicError, QuicStreamError } from './error'
+import { inspect } from 'util'
+import { QuicError, QUICError, QUICStreamError } from './error'
 import { PacketNumber, Offset, StreamID } from './protocol'
 import { BufferVisitor, readUFloat16, writeUFloat16 } from './common'
 
@@ -84,6 +85,21 @@ export abstract class Frame {
   constructor (type: number, name: string) {
     this.type = type
     this.name = name
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+    }
+  }
+
+  toString (): string {
+    return JSON.stringify(this.valueOf())
+  }
+
+  [inspect.custom] (_depth: any, _options: any): string {
+    return `<${this.constructor.name} ${this.toString()}>`
   }
 
   abstract byteLen (): number
@@ -185,6 +201,17 @@ export class StreamFrame extends Frame {
     this.isFIN = isFIN || data == null || data.length === 0
   }
 
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      isFIN: this.isFIN,
+      streamID: this.streamID.valueOf(),
+      offset: this.offset.valueOf(),
+      data: this.data,
+    }
+  }
+
   byteLen (): number {
     const dataLen = this.data != null ? this.data.length : 0
     return 1 + this.streamID.byteLen() + this.offset.byteLen() + (dataLen > 0 ? (dataLen + 2) : 0)
@@ -221,7 +248,7 @@ export class AckRange {
   last: number
   constructor (firstPacketNumberValue: number, lastPacketNumberValue: number) {
     this.first = firstPacketNumberValue // PacketNumber value
-    this.last = lastPacketNumberValue
+    this.last = lastPacketNumberValue // last >= first
   }
 
   len (): number {
@@ -322,7 +349,7 @@ export class AckFrame extends Frame {
 
     bufv.v.walk(2)
     if (bufv.length < bufv.v.end) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
     frame.delayTime = readUFloat16(bufv, bufv.v.start)
 
@@ -330,20 +357,20 @@ export class AckFrame extends Frame {
     if (hasMissingRanges) {
       bufv.v.walk(1)
       if (bufv.length < bufv.v.end) {
-        throw new QuicError('QUIC_INVALID_FRAME_DATA')
+        throw new QuicError('QUIC_INVALID_ACK_DATA')
       }
       numAckBlocks = bufv.readUInt8(bufv.v.start, true)
     }
     if (hasMissingRanges && numAckBlocks === 0) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
     bufv.v.walk(missingNumberDeltaLen)
     if (bufv.length < bufv.v.end) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
     let ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
     if ((frame.largestAcked > 0 && ackBlockLength < 1) || ackBlockLength > frame.largestAcked) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
 
     if (hasMissingRanges) {
@@ -355,13 +382,13 @@ export class AckFrame extends Frame {
       for (let i = 0; i < numAckBlocks; i++) {
         bufv.v.walk(1)
         if (bufv.length < bufv.v.end) {
-          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+          throw new QuicError('QUIC_INVALID_ACK_DATA')
         }
         const gap = bufv.readUInt8(bufv.v.start, true)
 
         bufv.v.walk(missingNumberDeltaLen)
         if (bufv.length < bufv.v.end) {
-          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+          throw new QuicError('QUIC_INVALID_ACK_DATA')
         }
         ackBlockLength = bufv.readUIntLE(bufv.v.start, missingNumberDeltaLen, true)
 
@@ -397,25 +424,25 @@ export class AckFrame extends Frame {
     }
 
     if (!frame.validateAckRanges()) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
 
     bufv.v.walk(1)
     if (bufv.length < bufv.v.end) {
-      throw new QuicError('QUIC_INVALID_FRAME_DATA')
+      throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
     const numTimestamp = bufv.readUInt8(bufv.v.start, true)
     if (numTimestamp > 0) { // TODO
       // Delta Largest acked
       bufv.v.walk(1)
       if (bufv.length < bufv.v.end) {
-        throw new QuicError('QUIC_INVALID_FRAME_DATA')
+        throw new QuicError('QUIC_INVALID_ACK_DATA')
       }
       // buf.readUInt8(v.start, true)
       // First Timestamp
       bufv.v.walk(4)
       if (bufv.length < bufv.v.end) {
-        throw new QuicError('QUIC_INVALID_FRAME_DATA')
+        throw new QuicError('QUIC_INVALID_ACK_DATA')
       }
       // buf.readUInt32LE(v.start, true)
 
@@ -423,13 +450,13 @@ export class AckFrame extends Frame {
         // Delta Largest acked
         bufv.v.walk(1)
         if (bufv.length < bufv.v.end) {
-          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+          throw new QuicError('QUIC_INVALID_ACK_DATA')
         }
         // buf.readUInt8(v.start, true)
         // Time Since Previous Timestamp
         bufv.v.walk(2)
         if (bufv.length < bufv.v.end) {
-          throw new QuicError('QUIC_INVALID_FRAME_DATA')
+          throw new QuicError('QUIC_INVALID_ACK_DATA')
         }
         // buf.readUInt16LE(v.start, true)
       }
@@ -441,7 +468,7 @@ export class AckFrame extends Frame {
   lowestAcked: number
   ackRanges: AckRange[]
   delayTime: number
-  packetReceivedTime: any
+  largestAckedTime: number
   constructor () {
     super(0b01000000, 'ACK')
 
@@ -452,7 +479,18 @@ export class AckFrame extends Frame {
     this.ackRanges = []
     this.delayTime = 0 // microseconds
     // time when the LargestAcked was received, this field Will not be set for received ACKs frames
-    this.packetReceivedTime = null // should be process.hrtime()
+    this.largestAckedTime = 0 // millisecond, timestamp
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      largestAcked: this.largestAcked,
+      lowestAcked: this.lowestAcked,
+      delayTime: this.delayTime,
+      ackRanges: this.ackRanges,
+    }
   }
 
   hasMissingRanges (): boolean {
@@ -601,9 +639,8 @@ export class AckFrame extends Frame {
     bufv.writeUInt8(this.type, bufv.v.start)
     largestAckedNum.writeTo(bufv)
 
-    if (this.delayTime === 0 && this.packetReceivedTime != null) {
-      const delayTime = process.hrtime(this.packetReceivedTime) // [seconds, nanoseconds]
-      this.delayTime = delayTime[0] * 1000 * 1000 + Math.floor(delayTime[1] / 1000) // microsecond
+    if (this.delayTime === 0) {
+      this.delayTime = (Date.now() - this.largestAckedTime) * 1000 // microsecond
     }
     bufv.v.walk(2)
     writeUFloat16(bufv, this.delayTime, bufv.v.start)
@@ -612,7 +649,7 @@ export class AckFrame extends Frame {
     if (hasMissingRanges) {
       numRanges = this.numWritableNackRanges()
       if (numRanges > 0xff) {
-        throw new Error('AckFrame: Too many ACK ranges')
+        throw new QuicError('AckFrame: Too many ACK ranges')
       }
       bufv.v.walk(1)
       bufv.writeUInt8(numRanges - 1, bufv.v.start)
@@ -623,10 +660,10 @@ export class AckFrame extends Frame {
       firstAckBlockLength = this.largestAcked - this.lowestAcked + 1
     } else {
       if (this.largestAcked !== this.ackRanges[0].last) {
-        throw new Error('largestAcked does not match ACK ranges')
+        throw new QuicError('AckFrame: largestAcked does not match ACK ranges')
       }
       if (this.lowestAcked !== this.ackRanges[this.ackRanges.length - 1].first) {
-        throw new Error('lowestAcked does not match ACK ranges')
+        throw new QuicError('AckFrame: lowestAcked does not match ACK ranges')
       }
       firstAckBlockLength = this.largestAcked - this.ackRanges[0].first + 1
       numRangesWritten++
@@ -677,7 +714,7 @@ export class AckFrame extends Frame {
     }
 
     if (numRanges !== numRangesWritten) {
-      throw new Error('BUG: Inconsistent number of ACK ranges written')
+      throw new QuicError('AckFrame: Inconsistent number of ACK ranges written')
     }
     bufv.v.walk(1)
     bufv.writeUInt8(0, bufv.v.start) // no timestamps
@@ -719,15 +756,24 @@ export class StopWaitingFrame extends Frame {
       throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
     }
     const delta = bufv.readIntLE(bufv.v.start, len, false)
-    return new StopWaitingFrame(packetNumber, new PacketNumber(packetNumber.valueOf() - delta))
+    return new StopWaitingFrame(packetNumber, packetNumber.valueOf() - delta)
   }
 
   packetNumber: PacketNumber
-  leastUnacked: PacketNumber
-  constructor (packetNumber: PacketNumber, leastUnacked: PacketNumber) {
+  leastUnacked: number
+  constructor (packetNumber: PacketNumber, leastUnacked: number) {
     super(0x06, 'STOP_WAITING')
-    this.packetNumber = packetNumber // packetNumber > leastUnacked
+    this.packetNumber = packetNumber // packetNumber.valueOf() > leastUnacked
     this.leastUnacked = leastUnacked
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      packetNumber: this.packetNumber.valueOf(),
+      leastUnacked: this.leastUnacked,
+    }
   }
 
   byteLen (): number {
@@ -739,7 +785,7 @@ export class StopWaitingFrame extends Frame {
     bufv.v.walk(1)
     bufv.writeUInt8(this.type, bufv.v.start)
     bufv.v.walk(len)
-    bufv.writeUIntLE(this.packetNumber.valueOf() - this.leastUnacked.valueOf(), bufv.v.start, len)
+    bufv.writeUIntLE(this.packetNumber.valueOf() - this.leastUnacked, bufv.v.start, len)
     return bufv
   }
 }
@@ -781,6 +827,15 @@ export class WindowUpdateFrame extends Frame {
     super(0x04, 'WINDOW_UPDATE')
     this.streamID = streamID
     this.offset = offset
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      streamID: this.streamID.valueOf(),
+      offset: this.offset.valueOf(),
+    }
   }
 
   byteLen (): number {
@@ -828,6 +883,14 @@ export class BlockedFrame extends Frame {
   constructor (streamID: StreamID) {
     super(0x05, 'BLOCKED')
     this.streamID = streamID
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      streamID: this.streamID.valueOf(),
+    }
   }
 
   byteLen (): number {
@@ -936,12 +999,22 @@ export class RstStreamFrame extends Frame {
 
   streamID: StreamID
   offset: Offset
-  error: QuicStreamError
-  constructor (streamID: StreamID, offset: Offset, error: QuicStreamError) {
+  error: QUICStreamError
+  constructor (streamID: StreamID, offset: Offset, error: QUICStreamError) {
     super(0x01, 'RST_STREAM')
     this.streamID = streamID
     this.offset = offset
     this.error = error
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      streamID: this.streamID.valueOf(),
+      offset: this.offset.valueOf(),
+      error: this.error.valueOf(),
+    }
   }
 
   byteLen (): number {
@@ -1030,10 +1103,18 @@ export class ConnectionCloseFrame extends Frame {
     return new ConnectionCloseFrame(error)
   }
 
-  error: QuicError
-  constructor (error: QuicError) {
+  error: QUICError
+  constructor (error: QUICError) {
     super(0x02, 'CONNECTION_CLOSE')
     this.error = error
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      error: this.error.valueOf(),
+    }
   }
 
   byteLen (): number {
@@ -1109,11 +1190,20 @@ export class GoAwayFrame extends Frame {
   }
 
   streamID: StreamID
-  error: QuicError
-  constructor (lastGoodStreamID: StreamID, error: QuicError) {
+  error: QUICError
+  constructor (lastGoodStreamID: StreamID, error: QUICError) {
     super(0x03, 'GOAWAY')
     this.streamID = lastGoodStreamID
     this.error = error
+  }
+
+  valueOf () {
+    return {
+      name: this.name,
+      type: this.type,
+      streamID: this.streamID.valueOf(),
+      error: this.error.valueOf(),
+    }
   }
 
   byteLen (): number {

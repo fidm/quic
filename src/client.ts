@@ -5,8 +5,8 @@
 
 import { debuglog } from 'util'
 import { lookup, Visitor } from './internal/common'
-import { QuicError, errors } from './internal/error'
-import { parsePacket, ResetPacket, NegotiationPacket, RegularPacket } from './internal/packet'
+import { QuicError } from './internal/error'
+import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import {
   ConnectionID,
   MaxReceivePacketSize,
@@ -22,6 +22,7 @@ import {
   kVersion,
   kClientState,
   kIntervalCheck,
+  kUnackedPackets,
 } from './internal/symbol'
 
 import { createSocket, AddressInfo } from './socket'
@@ -42,7 +43,8 @@ export class Client extends Session {
       const time = Date.now()
       // client session idle timeout
       if (time - this[kState].lastNetworkActivityTime > this[kState].idleTimeout) {
-        this.close(QuicError.fromError(errors.QUIC_NETWORK_IDLE_TIMEOUT))
+        this.emit('timeout')
+        this.close(QuicError.fromError(QuicError.QUIC_NETWORK_IDLE_TIMEOUT))
         return
       }
       // other session check
@@ -50,14 +52,29 @@ export class Client extends Session {
     }, 1024)
   }
 
+  _resendPacketsForNegotiation () {
+    const packets = this[kUnackedPackets].toArray()
+    this[kUnackedPackets].reset()
+    for (const packet of packets) {
+      this._sendPacket(packet, (err: any) => {
+        if (err != null && !this.destroyed) {
+          this.destroy(err)
+        }
+      })
+    }
+  }
+
   async connect (port: number, address: string = 'localhost'): Promise<any> {
     if (this[kSocket] != null) {
       throw new Error('Client connecting duplicated')
     }
+    if (this[kState].destroyed) {
+      throw new Error('Client destroyed')
+    }
 
     const addr = await lookup(address)
 
-    debug(`client connect: ${address}, ${port}`, addr)
+    debug(`client connect: %s, %d, %j`, address, port, addr)
     this[kState].remotePort = port
     this[kState].remoteAddress = addr.address
     this[kState].remoteFamily = 'IPv' + addr.family
@@ -96,14 +113,13 @@ export class ClientState {
 }
 
 function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
-  debug(`client message: session ${client.id}, ${msg.length} bytes`, rinfo)
   if (msg.length === 0 || client.destroyed) {
     return
   }
   // The packet size should not exceed protocol.MaxReceivePacketSize bytes
   // If it does, we only read a truncated packet, which will then end up undecryptable
   if (msg.length > MaxReceivePacketSize) {
-    debug(`receive too large data: ${msg.length} bytes`)
+    debug(`client message - receive too large data: %d bytes`, msg.length)
     // msg = msg.slice(0, MaxReceivePacketSize)
   }
 
@@ -115,13 +131,13 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
   try {
     packet = parsePacket(bufv, SessionType.SERVER, client[kVersion])
   } catch (err) {
-    debug(`session ${client.id}: parsing packet error: ${err.message}`, JSON.stringify(rinfo))
+    debug(`session %s - parsing packet error: %o`, client.id, err)
     // drop this packet if we can't parse the Public Header
     return
   }
   // reject packets with the wrong connection ID
   if (!client[kID].equals(packet.connectionID)) {
-    debug(`received a spoofed packet with wrong connection ID. Ignoring.`)
+    debug(`session %s - received a spoofed packet with wrong ID: %s`, client.id, packet.connectionID)
     return
   }
 
@@ -130,12 +146,12 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
     // otherwise this might be an attacker trying to inject a PUBLIC_RESET to kill the connection
     const remoteAddr = client[kState].remoteAddr
     if (remoteAddr == null || !remoteAddr.equals(senderAddr)) {
-      debug(`received a spoofed Public Reset. Ignoring.`)
+      debug(`session %s - received a spoofed Public Reset: %j`, client.id, senderAddr)
       return
     }
 
-    debug(`Public Reset, rejected packet number: ${(packet as ResetPacket).packetNumber}.`)
-    client.destroy(QuicError.fromError(errors.QUIC_PUBLIC_RESET))
+    debug(`session %s - Public Reset, rejected packet number: %j`, client.id, packet)
+    client.destroy(QuicError.fromError(QuicError.QUIC_PUBLIC_RESET))
     return
   }
 
@@ -155,12 +171,13 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
 
     const newVersion = chooseVersion(versions)
     client[kClientState].receivedNegotiationPacket = true
+    debug(`session %s - received Public Negotiation: %s`, client.id, newVersion)
     if (newVersion !== '') {
       // switch to negotiated version
       client[kVersion] = newVersion
-      // TODO: resend all packets using this version
+      client._resendPacketsForNegotiation()
     } else {
-      client.close(new QuicError('QUIC_INVALID_VERSION'))
+      client.destroy(QuicError.fromError(QuicError.QUIC_INVALID_VERSION))
     }
 
     return
