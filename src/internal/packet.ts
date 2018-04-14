@@ -332,6 +332,7 @@ export class RegularPacket extends Packet {
   version: string
   nonce: Buffer | null
   frames: Frame[]
+  isRetransmittable: boolean
   constructor (connectionID: ConnectionID, packetNumber: PacketNumber, nonce: Buffer | null = null) {
     let flag = 0b00001000
     flag |= (packetNumber.flagBits() << 4)
@@ -344,6 +345,7 @@ export class RegularPacket extends Packet {
     this.version = '' // 4 byte, string
     this.nonce = nonce // 32 byte, buffer
     this.frames = []
+    this.isRetransmittable = true
   }
 
   valueOf () {

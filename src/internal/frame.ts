@@ -98,6 +98,10 @@ export abstract class Frame {
     return JSON.stringify(this.valueOf())
   }
 
+  isRetransmittable (): boolean {
+    return this.name !== 'ACK' && this.name !== 'STOP_WAITING'
+  }
+
   [inspect.custom] (_depth: any, _options: any): string {
     return `<${this.constructor.name} ${this.toString()}>`
   }
@@ -192,13 +196,13 @@ export class StreamFrame extends Frame {
   constructor (streamID: StreamID, offset: Offset, data: Buffer | null = null, isFIN: boolean = false) {
     super(0b10000000, 'STREAM')
 
+    if (data != null && data.length === 0) {
+      data = null
+    }
     this.streamID = streamID
     this.offset = offset
-    if (!isFIN && (!Buffer.isBuffer(data) || data.length === 0)) {
-      throw new QuicError('QUIC_INVALID_STREAM_DATA')
-    }
     this.data = data
-    this.isFIN = isFIN || data == null || data.length === 0
+    this.isFIN = isFIN || data == null
   }
 
   valueOf () {

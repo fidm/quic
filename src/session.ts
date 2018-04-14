@@ -49,7 +49,7 @@ import { Socket } from './socket'
 import { Stream } from './stream'
 import { BufferVisitor, toBuffer, Queue } from './internal/common'
 
-const debug = debuglog('quic')
+const debug = debuglog('quic:session')
 
 //
 // *************** Session ***************
@@ -129,15 +129,17 @@ export class Session extends EventEmitter {
     this[kNextPacketNumber] = packetNumber.nextNumber()
     const regularPacket = new RegularPacket(this[kID], packetNumber)
     regularPacket.addFrames(frame)
+    regularPacket.isRetransmittable = frame.isRetransmittable()
     this._sendPacket(regularPacket, callback)
   }
 
   _sendStopWaitingFrame (leastUnacked: number) {
     const packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
-    const regularPacket = new RegularPacket(this[kID], packetNumber)
     const frame = new StopWaitingFrame(packetNumber, leastUnacked)
+    const regularPacket = new RegularPacket(this[kID], packetNumber)
     regularPacket.addFrames(frame)
+    regularPacket.isRetransmittable = false
 
     debug(`session %s - write StopWaitingFrame, packetNumber: %d, leastUnacked: %d`, this.id, packetNumber.valueOf(), leastUnacked)
     this._sendPacket(regularPacket, (err) => {
@@ -147,7 +149,7 @@ export class Session extends EventEmitter {
     })
   }
 
-  _retransmit (frame: AckFrame) {
+  _retransmit (frame: AckFrame): number {
     const unackedPackets = this[kUnackedPackets]
 
     let packet = unackedPackets.first()
@@ -155,7 +157,7 @@ export class Session extends EventEmitter {
     while (packet != null) {
       const packetNumber = packet.packetNumber.valueOf()
       if (packetNumber > frame.largestAcked) {
-        return
+        return 0
       }
       if (packetNumber <= frame.lowestAcked || frame.acksPacket(packetNumber)) {
         unackedPackets.shift()
@@ -174,6 +176,7 @@ export class Session extends EventEmitter {
       count += 1
     }
     debug(`session %s - retransmit, count: %d`, this.id, count)
+    return count
   }
 
   _sendPacket (packet: Packet, callback: (...args: any[]) => void) {
@@ -189,9 +192,11 @@ export class Session extends EventEmitter {
       if (this.isClient && !this[kState].versionNegotiated) {
         (packet as RegularPacket).setVersion(this[kVersion])
       }
-      this[kUnackedPackets].push(packet as RegularPacket)
-      if (this[kUnackedPackets].length > 1000) {
-        return callback(QuicError.fromError(QuicError.QUIC_TOO_MANY_OUTSTANDING_SENT_PACKETS))
+      if ((packet as RegularPacket).isRetransmittable) {
+        this[kUnackedPackets].push(packet as RegularPacket)
+        if (this[kUnackedPackets].length > 1000) {
+          return callback(QuicError.fromError(QuicError.QUIC_TOO_MANY_OUTSTANDING_SENT_PACKETS))
+        }
       }
     }
     const buf = toBuffer(packet)
@@ -230,10 +235,10 @@ export class Session extends EventEmitter {
         case 'STREAM':
           this._handleStreamFrame(frame as StreamFrame, rcvTime)
           break
-        case 'ACK': // TODO
+        case 'ACK':
           this._handleACKFrame(frame as AckFrame)
           break
-        case 'STOP_WAITING': // TODO
+        case 'STOP_WAITING':
           // The STOP_WAITING frame is sent to inform the peer that it should not continue to
           // wait for packets with packet numbers lower than a specified value.
           // The resulting least unacked is the smallest packet number of any packet for which the sender is still awaiting an ack.
@@ -307,7 +312,9 @@ export class Session extends EventEmitter {
     }
     // It is recommended for the sender to send the most recent largest acked packet
     // it has received in an ack as the stop waiting frame’s least unacked value.
-    this._sendStopWaitingFrame(frame.largestAcked)
+    if (frame.hasMissingRanges()) {
+      this._sendStopWaitingFrame(frame.largestAcked)
+    }
     this._retransmit(frame)
   }
 
@@ -319,15 +326,19 @@ export class Session extends EventEmitter {
     // The stream ID can be 0, indicating this WINDOW_UPDATE applies to the connection level flow control window,
     // or > 0 indicating that the specified stream should increase its flow control window.
     const streamID = frame.streamID.valueOf()
+    const offset = frame.offset.valueOf()
+
+    debug(`session %s - received WindowUpdateFrame, streamID: %d, offset: %d`,
+      this.id, streamID, offset)
     if (streamID === 0) {
-      if (frame.offset.gt(this[kState].outgoingWindowByteOffset)) {
-        this[kState].outgoingWindowByteOffset = frame.offset
+      if (offset > this[kState].outgoingWindowByteOffset) {
+        this[kState].outgoingWindowByteOffset = offset
       }
     } else {
       const stream = this[kStreams].get(streamID)
       if (stream != null && !stream.destroyed) {
-        if (frame.offset.gt(stream[kState].outgoingWindowByteOffset)) {
-          stream[kState].outgoingWindowByteOffset = frame.offset
+        if (offset > stream[kState].outgoingWindowByteOffset) {
+          stream[kState].outgoingWindowByteOffset = offset
           stream._tryFlushCallbacks()
         }
       }
@@ -517,8 +528,8 @@ export class SessionState {
   shuttingDown: boolean
   versionNegotiated: boolean
   keepAlivePingSent: boolean
-  maxIncomingByteOffset: Offset
-  outgoingWindowByteOffset: Offset
+  maxIncomingByteOffset: number
+  outgoingWindowByteOffset: number
 
   constructor () {
     this.localFamily = ''
@@ -543,8 +554,8 @@ export class SessionState {
     this.versionNegotiated = false
     this.keepAlivePingSent = false
     // Both stream and session windows start with a default value of 16 KB
-    this.maxIncomingByteOffset = new Offset(16 * 1024)
-    this.outgoingWindowByteOffset = new Offset(16 * 1024)
+    this.maxIncomingByteOffset = 16 * 1024
+    this.outgoingWindowByteOffset = 16 * 1024
   }
 }
 
@@ -581,6 +592,10 @@ export class ACKHandler {
     if (numbersAcked.length === 0) {
       return null
     }
+    // if there is no missed packet number, we do not need ack as quickly as possible
+    if (numbersAcked.length < 256 && numbersAcked.length >= (this.largestAcked - this.lowestAcked + 1)) {
+      return null
+    }
     numbersAcked.sort((a, b) => b - a)
     if (numbersAcked[0] <= this.lowestAcked) {
       numbersAcked.length = 0
@@ -594,6 +609,7 @@ export class ACKHandler {
     frame.largestAckedTime = this.largestAckedTime
 
     let range = new AckRange(this.largestAcked, this.largestAcked)
+    // numbersAcked should include largestAcked and lowestAcked for this AGL
     for (let i = 1, l = numbersAcked.length; i < l; i++) {
       const num = numbersAcked[i]
       if (num < this.lowestAcked) {
@@ -606,7 +622,7 @@ export class ACKHandler {
       } else if (ret > 1) {
         frame.ackRanges.push(range)
         range = new AckRange(num, num)
-      }
+      } // else ingnore
     }
     if (range.first > frame.lowestAcked) {
       frame.ackRanges.push(range)
@@ -618,7 +634,7 @@ export class ACKHandler {
     if (frame.ackRanges.length === 0) {
       this.lowestAcked = this.largestAcked
     } else {
-      this.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].first
+      this.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].first // update by StopWaiting
     }
 
     // if ackRanges.length > 256, ignore some ranges between
@@ -626,6 +642,8 @@ export class ACKHandler {
       frame.ackRanges[255] = frame.ackRanges[frame.ackRanges.length - 1]
       frame.ackRanges.length = 256
     }
+    debug(`after build AckFrame, largestAcked: %d, lowestAcked: %d, numbersAcked %j`,
+      this.largestAcked, this.lowestAcked, numbersAcked)
     return frame
   }
 }

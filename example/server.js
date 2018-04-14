@@ -3,35 +3,26 @@
 //
 // **License:** MIT
 
-// NODE_DEBUG=quic node example/server.js
+// NODE_DEBUG=quic,quic:session,quic:stream node -r ts-node/register example/server.js
 const ilog = require('ilog')
 const {
   Server
-} = require('..')
+} = require('../src')
 
 const server = new Server()
 
 server
   .on('error', ilog.error)
   .on('session', (session) => {
-    ilog.info(`session: ${session.id}`)
+    ilog.info(`new session - ${session.id}`)
 
     session
-      .on('ping', () => {
-        ilog.info('ping')
-      })
-      .on('error', (err) => {
-        err.class = `session: ${session.id}`
-        ilog.error(err)
-      })
+      .on('error', ilog.error)
       .on('stream', (stream) => {
-        ilog.info(`stream: ${stream.id}`)
+        ilog.info(`new stream - ${stream.id}`)
 
         stream
-          .on('error', (err) => {
-            err.class = `stream: ${stream.id}`
-            ilog.error(err)
-          })
+          .on('error', ilog.error)
           .on('data', (data) => {
             stream.write(data)
           })

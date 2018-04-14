@@ -10,10 +10,20 @@ A QUIC server/client implementation in Node.js.
 
 ## QUIC Wire Layout Specification: https://docs.google.com/document/d/1WJvyZflAO2pq77yOLbp9NsGjC1CHetAXV8I0fQe-B_U
 
+## Demo
+
+### QUIC without TLS
+
+https://github.com/toajs/quic/blob/master/example/echo.js
+
+```sh
+node -r ts-node/register example/echo.js
+```
+
 ## License
 
 QUIC for Node.js is licensed under the [MIT](https://github.com/toajs/quic/blob/master/LICENSE) license.
-Copyright &copy; 2016-2017 Toajs.
+Copyright &copy; 2016-2018 Toajs.
 
 [npm-url]: https://npmjs.org/package/quic
 [npm-image]: http://img.shields.io/npm/v/quic.svg

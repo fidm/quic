@@ -4,7 +4,7 @@
   "authors": [
     "Yan Qing <admin@zensh.com>"
   ],
-  "version": "0.2.0",
+  "version": "0.2.1",
   "main": "dist/index.js",
   "license": "MIT",
   "repository": {
@@ -36,6 +36,7 @@
   },
   "files": [
     "dist",
+    "LICENSE",
     "README.md",
     "CHANGELOG.md"
   ]
