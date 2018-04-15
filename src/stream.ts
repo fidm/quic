@@ -68,6 +68,14 @@ export class Stream extends Duplex {
     return this[kState].destroyed
   }
 
+  get bytesRead (): number {
+    return this[kState].bytesRead
+  }
+
+  get bytesWritten (): number {
+    return this[kState].bytesWritten
+  }
+
   // close closes the stream with an error.
   close (err: any): Promise<any> {
     this[kState].localFIN = true
@@ -158,10 +166,11 @@ export class Stream extends Duplex {
     }
 
     this[kState].flushing = true
-    this._flushData((err, shouldContinue) => {
+    this._flushData((err) => {
       this[kState].flushing = false
-      // continue to send data or send FIN
-      if (err == null && (shouldContinue || (this[kState].shouldFIN && !this[kState].localFIN))) {
+      const shouldConsume = this[kState].bufferList.byteLen > 0 // should send data
+      const shouldFIN = this[kState].shouldFIN && !this[kState].localFIN // should send FIN
+      if (err == null && (shouldConsume || shouldFIN)) {
         return this._tryFlushCallbacks()
       }
 
@@ -172,30 +181,27 @@ export class Stream extends Duplex {
     })
   }
 
-  _flushData (callback: (...args: any[]) => void): void {
-    const buf = this[kState].bufferList.read(MaxStreamBufferSize)
-    if (buf == null && !this[kState].shouldFIN) {
-      return callback()
+  _flushData (callback: (err: any) => void): void {
+    const byteLen = this[kState].bufferList.read(this[kState].flushBuffer, 0)
+    if (byteLen === 0 && !this[kState].shouldFIN) {
+      return callback(null)
     }
 
     const offet = this[kState].writeOffset
-    if (buf != null) {
-      this[kState].writeOffset = offet.nextOffset(buf.length)
+    const buf = byteLen > 0 ? this[kState].flushBuffer.slice(0, byteLen) : null
+    const shouldFIN = this[kState].shouldFIN && this[kState].bufferList.byteLen === 0
+    if (byteLen > 0) {
+      this[kState].writeOffset = offet.nextOffset(byteLen)
+      this[kState].bytesWritten += byteLen
     }
-    const streamFrame = new StreamFrame(this[kID], offet, buf, this[kState].shouldFIN && this[kState].bufferList.byteLen === 0)
+    const streamFrame = new StreamFrame(this[kID], offet, buf, shouldFIN)
     if (streamFrame.isFIN) {
       this[kState].localFIN = true
     }
 
     debug(`stream %s - write streamFrame, isFIN: %s, offset: %d, data size: %d`,
-      this.id, streamFrame.isFIN, streamFrame.offset.valueOf(), (buf == null ? 0 : buf.length))
-    this[kSession]._sendFrame(streamFrame, (err: any) => {
-      if (err != null) {
-        return callback(err)
-      }
-
-      callback(null, this[kState].bufferList.byteLen > 0)
-    })
+      this.id, streamFrame.isFIN, streamFrame.offset.valueOf(), byteLen)
+    this[kSession]._sendFrame(streamFrame, callback)
   }
 
   _write (chunk: Buffer, encoding: string, callback: (...args: any[]) => void) {
@@ -233,12 +239,14 @@ export class Stream extends Duplex {
   }
 
   _read (size: number = 0) {
-    const data = this[kState].readQueue.read()
-    if (data != null) {
+    let data = this[kState].readQueue.read()
+    while (data != null) {
       if (this.push(data) && size > data.length) {
-        this._read(size - data.length)
-        return
+        size -= data.length
+        data = this[kState].readQueue.read()
+        continue
       }
+      break
     }
     if (!this[kState].ended && this[kState].readQueue.isEnd()) {
       this[kState].ended = true
@@ -258,6 +266,11 @@ export class Stream extends Duplex {
     state.finished = true
     state.readQueue.reset()
     state.bufferList.reset()
+
+    err = StreamError.checkAny(err)
+    if (err != null && err.isNoError) {
+      err = null
+    }
     callback(err)
   }
 }
@@ -277,6 +290,7 @@ class StreamState {
   readQueue: StreamFramesSorter
   bufferList: StreamDataList
   writeOffset: Offset
+  flushBuffer: Buffer
   maxIncomingByteOffset: number
   outgoingWindowByteOffset: number
   writeCallbacks: Array<(...args: any[]) => void>
@@ -295,6 +309,7 @@ class StreamState {
     this.readQueue = new StreamFramesSorter()
     this.bufferList = new StreamDataList()
     this.writeOffset = new Offset(0)
+    this.flushBuffer = Buffer.alloc(MaxStreamBufferSize)
     // Both stream and session windows start with a default value of 16 KB
     this.maxIncomingByteOffset = 16 * 1024
     this.outgoingWindowByteOffset = 16 * 1024
@@ -357,22 +372,41 @@ class StreamDataList {
     return ret
   }
 
-  read (n: number): Buffer | null {
+  read (buf: Buffer, offset: number): number {
     if (this.head == null) {
-      return null
+      return 0
     }
 
-    let ret = this.head.data
-    if (ret.length > n) {
+    const n = buf.length - offset
+    const ret = this.head.data
+    if (ret.length >= n) {
+      ret.copy(buf, offset, 0, n)
       this.head.data = ret.slice(n)
-      ret = ret.slice(0, n)
       this.byteLen -= n
-      return ret
+      return n
     }
+    ret.copy(buf, offset, 0, ret.length)
     this._shift()
     this.byteLen -= ret.length
-    return ret // ret.length <= n
+    return ret.length + this.read(buf, offset + ret.length)
   }
+
+  // read (n: number): Buffer | null {
+  //   if (this.head == null) {
+  //     return null
+  //   }
+
+  //   let ret = this.head.data
+  //   if (ret.length > n) {
+  //     this.head.data = ret.slice(n)
+  //     ret = ret.slice(0, n)
+  //     this.byteLen -= n
+  //     return ret
+  //   }
+  //   this._shift()
+  //   this.byteLen -= ret.length
+  //   return ret // ret.length <= n
+  // }
 }
 
 class StreamFrameEntry {

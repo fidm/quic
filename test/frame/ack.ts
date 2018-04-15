@@ -19,7 +19,7 @@ import {
 
 import { bufferFromBytes } from '../common'
 
-suite.only('ACK Frame', function () {
+suite('ACK Frame', function () {
   suite('parsing', function () {
     it('a sample ACK frame', function () {
       const buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
@@ -30,7 +30,6 @@ suite.only('ACK Frame', function () {
       ok(ackFrame.hasMissingRanges() === false)
 
       // ignore Timestamps
-      console.log(11111, toBuffer(ackFrame))
       ok(toBuffer(ackFrame).equals(bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x0])))
     })
 

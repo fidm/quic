@@ -592,7 +592,13 @@ export class QUICError extends Error {
     if (err instanceof QUICError) {
       return err
     }
-    return new QUICError(err.name)
+    switch (typeof err) {
+    case 'string':
+      return new QUICError(err)
+    case 'number':
+      return new QUICError(err)
+    }
+    return new QUICError(err.code >= 0 ? err.code : err.message)
   }
 
   static fromBuffer (bufv: BufferVisitor): QUICError {
@@ -604,6 +610,13 @@ export class QUICError extends Error {
     return new QUICError(code)
   }
 
+  static checkAny  (err?: any): QUICError | null {
+    if (err == null) {
+      return null
+    }
+    return QUICError.fromError(err)
+  }
+
   name: string
   code: number
   constructor (nameOrCode: string | number) {
@@ -612,6 +625,10 @@ export class QUICError extends Error {
     this.name = error.name
     this.code = error.code
     Error.captureStackTrace(this, QUICError)
+  }
+
+  get isNoError () {
+    return this.code === errors.QUIC_NO_ERROR.code
   }
 
   valueOf () {
@@ -639,7 +656,13 @@ export class QUICStreamError extends Error {
     if (err instanceof QUICStreamError) {
       return err
     }
-    return new QUICStreamError(err.code != null ? err.code : err.name)
+    switch (typeof err) {
+    case 'string':
+      return new QUICStreamError(err)
+    case 'number':
+      return new QUICStreamError(err)
+    }
+    return new QUICStreamError(err.code >= 0 ? err.code : err.message)
   }
 
   static fromBuffer (bufv: BufferVisitor): QUICStreamError {
@@ -651,6 +674,13 @@ export class QUICStreamError extends Error {
     return new QUICStreamError(code)
   }
 
+  static checkAny  (err?: any): QUICError | null {
+    if (err == null) {
+      return null
+    }
+    return QUICStreamError.fromError(err)
+  }
+
   name: string
   code: number
   constructor (nameOrCode: string | number) {
@@ -659,6 +689,10 @@ export class QUICStreamError extends Error {
     this.name = error.name
     this.code = error.code
     Error.captureStackTrace(this, QUICStreamError)
+  }
+
+  get isNoError () {
+    return this.code === streamErrors.QUIC_STREAM_NO_ERROR.code
   }
 
   valueOf () {

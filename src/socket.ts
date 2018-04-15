@@ -20,9 +20,10 @@ export interface Socket extends UDPSocket {
 }
 
 export class SocketState {
+  exclusive: boolean // is shared between all sessions or not
   destroyed: boolean
-
   constructor () {
+    this.exclusive = true
     this.destroyed = false
   }
 }

@@ -99,6 +99,7 @@ export class Server extends EventEmitter {
     debug(`server listen: ${address}, ${port}`, addr)
 
     const socket = this[kSocket] = createSocket(addr.family)
+    socket[kState].exclusive = false // socket is shared between all sessions
     socket
       .on('error', (err) => this.emit('error', err))
       .on('close', () => serverOnClose(this))
@@ -114,8 +115,8 @@ export class Server extends EventEmitter {
         this.localPort = localAddr.port
         this.listening = true
 
+        process.nextTick(() => this.emit('listening'))
         resolve()
-        this.emit('listening')
       })
       socket.once('error', reject)
     })
@@ -147,20 +148,19 @@ export class Server extends EventEmitter {
     return Promise.reject('TODO')
   }
 
-  close (err: any) {
+  async close (err?: any) {
     if (this[kState].destroyed) {
       return
     }
     this[kState].destroyed = true
     for (const session of this[kConns].values()) {
-      session.close(err)
+      await session.close(err)
     }
     const timer = this[kIntervalCheck]
     if (timer != null) {
       clearInterval(timer)
     }
-    this.emit('close')
-    return
+    process.nextTick(() => this.emit('close'))
   }
 
   getConnections () {
@@ -177,7 +177,6 @@ export class Server extends EventEmitter {
 }
 
 function serverOnClose (server: Server) {
-  server.emit('error', new Error('the underlying socket closed'))
   for (const session of server[kConns].values()) {
     session.destroy(new Error('the underlying socket closed'))
   }

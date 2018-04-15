@@ -194,7 +194,7 @@ export class Session extends EventEmitter {
       }
       if ((packet as RegularPacket).isRetransmittable) {
         this[kUnackedPackets].push(packet as RegularPacket)
-        if (this[kUnackedPackets].length > 1000) {
+        if (this[kUnackedPackets].length > 4096) {
           return callback(QuicError.fromError(QuicError.QUIC_TOO_MANY_OUTSTANDING_SENT_PACKETS))
         }
       }
@@ -381,7 +381,7 @@ export class Session extends EventEmitter {
     })
   }
 
-  request (options: any) {
+  request (options?: any) {
     if (this[kState].shuttingDown) {
       throw StreamError.fromError(StreamError.QUIC_STREAM_PEER_GOING_AWAY)
     }
@@ -425,7 +425,7 @@ export class Session extends EventEmitter {
     return
   }
 
-  close (err: any): Promise<void> {
+  close (err?: any): Promise<void> {
     return new Promise((resolve) => {
       if (this[kState].destroyed) {
         return resolve()
@@ -466,10 +466,18 @@ export class Session extends EventEmitter {
 
   destroy (err: any) {
     debug(`session %s - session destroyed, error: %j`, this.id, err)
+    if (this[kState].destroyed) {
+      return
+    }
+
+    err = QuicError.checkAny(err)
+    if (err != null && err.isNoError) {
+      err = null
+    }
 
     const socket = this[kSocket]
     if (socket != null) {
-      if (this.isClient && !socket[kState].destroyed) {
+      if (socket[kState].exclusive && !socket[kState].destroyed) {
         socket.close()
         socket[kState].destroyed = true
       }
@@ -477,7 +485,7 @@ export class Session extends EventEmitter {
     }
 
     for (const stream of this[kStreams].values()) {
-      stream.destroy(new Error('the underlying session destroyed'))
+      stream.destroy(err)
     }
     const timer = this[kIntervalCheck]
     if (timer != null) {
@@ -492,7 +500,7 @@ export class Session extends EventEmitter {
 
     if (!this[kState].destroyed) {
       this[kState].destroyed = true
-      this.emit('close')
+      process.nextTick(() => this.emit('close'))
     }
     return
   }
@@ -633,6 +641,7 @@ export class ACKHandler {
 
     if (frame.ackRanges.length === 0) {
       this.lowestAcked = this.largestAcked
+      numbersAcked.length = 1
     } else {
       this.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].first // update by StopWaiting
     }

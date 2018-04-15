@@ -15,21 +15,17 @@ const {
 // ---------- Server ----------
 const server = new Server()
 server
-  .on('error', ilog.error)
+  .on('error', (err) => ilog.error(Object.assign(err, { class: 'server error' })))
   .on('session', (session) => {
     // ilog.info(session)
 
     session
-      .on('error', (err) => {
-        ilog.error(Object.assign({ class: `server session ${session.id}` }, err))
-      })
+      .on('error', (err) => ilog.error(Object.assign(err, { class: 'server session error' })))
       .on('stream', (stream) => {
         // ilog.info(stream)
 
         stream
-          .on('error', (err) => {
-            ilog.error(Object.assign({ class: `server stream ${stream.id}` }, err))
-          })
+          .on('error', (err) => ilog.error(Object.assign(err, { class: 'server stream error' })))
           .on('data', (data) => {
             ilog.info(`server stream ${stream.id} data: ${data.toString()}`)
             stream.write(data)
@@ -50,7 +46,7 @@ server.listen(2345)
 
 // ---------- Client ----------
 const cli = new Client()
-cli.on('error', ilog.error)
+cli.on('error', (err) => ilog.error(Object.assign(err, { class: 'client error' })))
 
 thunk(function * () {
   yield cli.connect(2345)
@@ -58,7 +54,7 @@ thunk(function * () {
 
   const stream = cli.request()
   stream
-    .on('error', ilog.error)
+    .on('error', (err) => ilog.error(Object.assign(err, { class: 'client stream error' })))
     .on('data', (data) => {
       ilog.info(`client stream ${stream.id} data: ${data.toString()}`)
     })

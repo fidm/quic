@@ -3,6 +3,8 @@
 //
 // **License:** MIT
 
+import { Readable } from 'stream'
+import { createHash, Hash, randomBytes } from 'crypto'
 import { suite, it } from 'tman'
 import { ok, strictEqual } from 'assert'
 
@@ -23,6 +25,40 @@ export function bufferFromBytes (array: any): BufferVisitor {
     }
   }
   return Visitor.wrap(Buffer.from(bytes))
+}
+
+export class RandDataStream extends Readable {
+  readBytes: number
+  totalSize: number
+  sum: string
+  sha256: Hash
+  constructor (totalSize: number) {
+    super()
+    this.readBytes = 0
+    this.totalSize = totalSize
+    this.sum = ''
+    this.sha256 = createHash('sha256')
+  }
+
+  _read (size: number = 0) {
+    let data = randBuffer(2048)
+    if (this.totalSize - this.readBytes < data.length) {
+      data = data.slice(0, this.totalSize - this.readBytes)
+    }
+    if (data.length > 0) {
+      this.sha256.update(data)
+      this.push(data)
+      this.readBytes += data.length
+    }
+    if (this.readBytes >= this.totalSize) {
+      this.sum = this.sha256.digest('hex')
+      this.push(null)
+    }
+  }
+}
+
+function randBuffer (max: number): Buffer {
+  return randomBytes(Math.max(Math.ceil(Math.random() * max)))
 }
 
 suite('common', function () {
