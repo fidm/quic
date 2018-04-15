@@ -25,7 +25,7 @@ export enum FamilyType {
 
 // MaxPacketSize is the maximum packet size, including the public header, that we use for sending packets
 // This is the value used by Chromium for a QUIC packet sent using IPv6 (for IPv4 it would be 1370)
-// const MaxPacketSize = exports.MaxPacketSize = 1350
+// export const MaxPacketSize = 1350
 
 // MaxFrameAndPublicHeaderSize is the maximum size of a QUIC frame plus PublicHeader
 // const MaxFrameAndPublicHeaderSize = exports.MaxFrameAndPublicHeaderSize = MaxPacketSize - 12 /*crypto signature*/

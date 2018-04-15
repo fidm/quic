@@ -45,7 +45,7 @@ import {
 import { Packet, ResetPacket, RegularPacket } from './internal/packet'
 import { QuicError, StreamError } from './internal/error'
 
-import { Socket } from './socket'
+import { Socket, sendPacket } from './socket'
 import { Stream } from './stream'
 import { BufferVisitor, toBuffer, Queue } from './internal/common'
 
@@ -199,8 +199,9 @@ export class Session extends EventEmitter {
         }
       }
     }
-    const buf = toBuffer(packet)
-    socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
+    sendPacket(socket, packet, this[kState].remotePort, this[kState].remoteAddress, callback)
+    // const buf = toBuffer(packet)
+    // socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
   }
 
   _trySendAckFrame () {

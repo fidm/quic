@@ -3,7 +3,7 @@
 //
 // **License:** MIT
 
-import * as ilog from 'ilog'
+import ilog from 'ilog'
 import { thunk } from 'thunks'
 import { suite, it } from 'tman'
 import { ok, equal, deepEqual } from 'assert'
