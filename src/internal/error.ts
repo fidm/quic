@@ -610,9 +610,12 @@ export class QUICError extends Error {
     return new QUICError(code)
   }
 
-  static checkAny  (err?: any): QUICError | null {
+  static checkAny  (err?: any): QUICError | QUICStreamError | null {
     if (err == null) {
       return null
+    }
+    if (err instanceof QUICStreamError) {
+      return err
     }
     return QUICError.fromError(err)
   }
@@ -674,9 +677,12 @@ export class QUICStreamError extends Error {
     return new QUICStreamError(code)
   }
 
-  static checkAny  (err?: any): QUICError | null {
+  static checkAny  (err?: any): QUICError | QUICStreamError | null {
     if (err == null) {
       return null
+    }
+    if (err instanceof QUICError) {
+      return err
     }
     return QUICStreamError.fromError(err)
   }

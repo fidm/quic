@@ -16,7 +16,6 @@ import {
   chooseVersion,
 } from './internal/protocol'
 import {
-  kID,
   kSocket,
   kState,
   kVersion,
@@ -25,7 +24,7 @@ import {
   kUnackedPackets,
 } from './internal/symbol'
 
-import { createSocket, AddressInfo } from './socket'
+import { createSocket, AddressInfo, Socket } from './socket'
 import { Session } from './session'
 
 const debug = debuglog('quic')
@@ -49,7 +48,7 @@ export class Client extends Session {
       }
       // other session check
       this._intervalCheck(time)
-    }, 1024)
+    }, 512)
   }
 
   _resendPacketsForNegotiation () {
@@ -64,12 +63,45 @@ export class Client extends Session {
     }
   }
 
-  async connect (port: number, address: string = 'localhost'): Promise<any> {
-    if (this[kSocket] != null) {
-      throw new Error('Client connecting duplicated')
-    }
+  setKeepAlive (enable: boolean, _initialDelay?: number) {
+    this[kState].keepAlivePingSent = enable
+    // initialDelay TODO
+  }
+
+  async spawn (port: number, address: string = 'localhost'): Promise<Client> {
     if (this[kState].destroyed) {
       throw new Error('Client destroyed')
+    }
+
+    const socket = this[kSocket]
+    if (socket == null || socket[kState].destroyed) {
+      throw new Error('the underlying socket destroyed')
+    }
+    const addr = await lookup(address)
+    debug(`client connect: %s, %d, %j`, address, port, addr)
+
+    const client = new Client()
+    socket[kState].conns.set(client.id, client)
+    socket[kState].exclusive = false
+
+    client[kSocket] = socket
+    client[kState].localFamily = this[kState].localFamily
+    client[kState].localAddress = this[kState].localAddress
+    client[kState].localPort = this[kState].localPort
+    client[kState].localAddr = new SocketAddress(socket.address())
+    client[kState].remotePort = port
+    client[kState].remoteAddress = addr.address
+    client[kState].remoteFamily = 'IPv' + addr.family
+    client[kState].remoteAddr = new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
+    return client
+  }
+
+  async connect (port: number, address: string = 'localhost'): Promise<any> {
+    if (this[kState].destroyed) {
+      throw new Error('Client destroyed')
+    }
+    if (this[kSocket] != null) {
+      throw new Error('Client connecting duplicated')
     }
 
     const addr = await lookup(address)
@@ -81,10 +113,11 @@ export class Client extends Session {
     this[kState].remoteAddr = new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
 
     const socket = this[kSocket] = createSocket(addr.family)
+    socket[kState].conns.set(this.id, this)
     socket
       .on('error', (err) => this.emit('error', err))
       .on('close', () => this.destroy(new Error('the underlying socket closed')))
-      .on('message', (msg, rinfo) => clientOnMessage(this, msg, rinfo))
+      .on('message', socketOnMessage)
 
     const res = new Promise((resolve, reject) => {
       socket.once('listening', () => {
@@ -112,8 +145,8 @@ export class ClientState {
   }
 }
 
-function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
-  if (msg.length === 0 || client.destroyed) {
+function socketOnMessage (this: Socket, msg: Buffer, rinfo: AddressInfo) {
+  if (msg.length === 0 || this[kState].destroyed) {
     return
   }
   // The packet size should not exceed protocol.MaxReceivePacketSize bytes
@@ -129,15 +162,21 @@ function clientOnMessage (client: Client, msg: Buffer, rinfo: AddressInfo) {
   const bufv = Visitor.wrap(msg)
   let packet = null
   try {
-    packet = parsePacket(bufv, SessionType.SERVER, client[kVersion])
+    packet = parsePacket(bufv, SessionType.SERVER)
   } catch (err) {
-    debug(`session %s - parsing packet error: %o`, client.id, err)
+    debug(`client message - parsing packet error: %o`, err)
     // drop this packet if we can't parse the Public Header
     return
   }
-  // reject packets with the wrong connection ID
-  if (!client[kID].equals(packet.connectionID)) {
-    debug(`session %s - received a spoofed packet with wrong ID: %s`, client.id, packet.connectionID)
+
+  const connectionID = packet.connectionID.valueOf()
+  const client = this[kState].conns.get(connectionID)
+  if (client == null) {
+    // reject packets with the wrong connection ID
+    debug(`client message - received a spoofed packet with wrong ID: %s`, connectionID)
+    return
+  } else if (client.destroyed) {
+    // Late packet for closed session
     return
   }
 

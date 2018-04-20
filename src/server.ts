@@ -11,6 +11,7 @@ import { QuicError } from './internal/error'
 import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import {
   kID,
+  kConns,
   kSocket,
   kState,
   kVersion,
@@ -29,7 +30,6 @@ import { createSocket, Socket, AddressInfo } from './socket'
 import { Session } from './session'
 
 const debug = debuglog('quic')
-export const kConns = Symbol('conns')
 
 export class ServerSession extends Session {
   [kServer]: Server
@@ -160,6 +160,11 @@ export class Server extends EventEmitter {
     if (timer != null) {
       clearInterval(timer)
     }
+    const socket = this[kSocket]
+    if (socket != null && !socket[kState].destroyed) {
+      socket.close()
+      socket[kState].destroyed = true
+    }
     process.nextTick(() => this.emit('close'))
   }
 
@@ -204,7 +209,7 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
   const bufv = Visitor.wrap(msg)
   let packet = null
   try {
-    packet = parsePacket(bufv, SessionType.CLIENT, '')
+    packet = parsePacket(bufv, SessionType.CLIENT)
   } catch (err) {
     debug(`server message - parsing packet error: %o`, err)
     // drop this packet if we can't parse the Public Header

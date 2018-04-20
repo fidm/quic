@@ -125,7 +125,7 @@ export class Stream extends Duplex {
     this._read(MaxStreamBufferSize * 10) // try to read all
     if (this[kState].readQueue.byteLen > MaxStreamReadCacheSize) {
       this.emit('error', new Error('Too large caching, stream data maybe lost'))
-      this.close(StreamError.fromError(StreamError.QUIC_ERROR_PROCESSING_STREAM))
+      this.destroy(StreamError.fromError(StreamError.QUIC_ERROR_PROCESSING_STREAM))
       return
     }
   }
@@ -188,7 +188,11 @@ export class Stream extends Duplex {
     }
 
     const offet = this[kState].writeOffset
-    const buf = byteLen > 0 ? this[kState].flushBuffer.slice(0, byteLen) : null
+    let buf = null
+    if (byteLen > 0) {
+      buf = Buffer.allocUnsafe(byteLen)
+      this[kState].flushBuffer.copy(buf, 0, 0, byteLen)
+    }
     const shouldFIN = this[kState].shouldFIN && this[kState].bufferList.byteLen === 0
     if (byteLen > 0) {
       this[kState].writeOffset = offet.nextOffset(byteLen)
@@ -495,9 +499,9 @@ class StreamFramesSorter {
     if (this.head != null && this.readOffset === this.head.offset) {
       data = this.head.data
       if (data != null) {
+        this.pendingOffsets.delete(this.readOffset)
         this.byteLen -= data.length
         this.readOffset += data.length
-        this.pendingOffsets.delete(this.readOffset)
       }
       this.head = this.head.next
     }

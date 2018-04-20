@@ -3,8 +3,9 @@
 //
 // **License:** MIT
 
-// node -r ts-node/register example/echo.js
-// NODE_DEBUG=quic,quic:session,quic:stream node -r ts-node/register example/echo.js
+// node example/echo.js
+// NODE_DEBUG=quic,quic:session,quic:stream node example/echo.js
+require('ts-node/register')
 const ilog = require('ilog')
 const thunk = require('thunks').thunk
 const {
@@ -69,8 +70,8 @@ thunk(function * () {
   yield (done) => stream.write('hello, QUIC', done)
 
   let i = 0
-  while (i < 10) {
-    yield thunk.delay(200)
+  while (i < 999) {
+    yield thunk.delay(100)
     yield (done) => stream.write(`${i++}`, done)
   }
 

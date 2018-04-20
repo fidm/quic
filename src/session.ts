@@ -5,6 +5,7 @@
 
 import { debuglog } from 'util'
 import { EventEmitter } from 'events'
+import { randomBytes } from 'crypto'
 import {
   Offset,
   SessionType,
@@ -127,7 +128,7 @@ export class Session extends EventEmitter {
   _sendFrame (frame: Frame, callback: (...args: any[]) => void) {
     const packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
-    const regularPacket = new RegularPacket(this[kID], packetNumber)
+    const regularPacket = new RegularPacket(this[kID], packetNumber, randomBytes(32))
     regularPacket.addFrames(frame)
     regularPacket.isRetransmittable = frame.isRetransmittable()
     this._sendPacket(regularPacket, callback)
@@ -137,7 +138,7 @@ export class Session extends EventEmitter {
     const packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
     const frame = new StopWaitingFrame(packetNumber, leastUnacked)
-    const regularPacket = new RegularPacket(this[kID], packetNumber)
+    const regularPacket = new RegularPacket(this[kID], packetNumber, randomBytes(32))
     regularPacket.addFrames(frame)
     regularPacket.isRetransmittable = false
 
@@ -154,28 +155,30 @@ export class Session extends EventEmitter {
 
     let packet = unackedPackets.first()
     let count = 0
+    debug(`session %s - start retransmit, count: %d, ackFrame: %j`, this.id, unackedPackets.length, frame.valueOf())
     while (packet != null) {
       const packetNumber = packet.packetNumber.valueOf()
       if (packetNumber > frame.largestAcked) {
-        return 0
+        break // wait for newest ack
       }
-      if (packetNumber <= frame.lowestAcked || frame.acksPacket(packetNumber)) {
+
+      if (frame.acksPacket(packetNumber)) {
         unackedPackets.shift()
         packet = unackedPackets.first()
         continue
       }
       unackedPackets.shift()
-      packet.packetNumber = this[kNextPacketNumber]
+      packet.setPacketNumber(this[kNextPacketNumber])
       this[kNextPacketNumber] = packet.packetNumber.nextNumber()
       this._sendPacket(packet, (err) => {
         if (err != null) {
           this.destroy(err)
         }
       })
-      packet = unackedPackets.first()
       count += 1
+      packet = unackedPackets.first()
     }
-    debug(`session %s - retransmit, count: %d`, this.id, count)
+    debug(`session %s - finish retransmit, count: %d`, this.id, count)
     return count
   }
 
@@ -200,6 +203,7 @@ export class Session extends EventEmitter {
       }
     }
     sendPacket(socket, packet, this[kState].remotePort, this[kState].remoteAddress, callback)
+    // debug(`session %s - write packet: %j`, this.id, packet.valueOf())
     // const buf = toBuffer(packet)
     // socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
   }
@@ -224,13 +228,14 @@ export class Session extends EventEmitter {
       // this.cryptoSetup.SetDiversificationNonce(packet.nonce)
     }
 
+    const packetNumber = packet.packetNumber.valueOf()
+
     this[kState].lastNetworkActivityTime = rcvTime
-    this[kState].keepAlivePingSent = false
-    if (this[kACKHandler].ack(packet.packetNumber.valueOf(), rcvTime) >= 511) { // 256 blocks + 255 gaps
+    if (this[kACKHandler].ack(packetNumber, rcvTime)) {
       this._trySendAckFrame()
     }
     debug(`session %s - received RegularPacket, packetNumber: %d, frames: %j`,
-      this.id, packet.packetNumber.valueOf(), packet.frames.map((frame) => frame.name))
+      this.id, packetNumber, packet.frames.map((frame) => frame.name))
     for (const frame of packet.frames) {
       switch (frame.name) {
         case 'STREAM':
@@ -478,7 +483,8 @@ export class Session extends EventEmitter {
 
     const socket = this[kSocket]
     if (socket != null) {
-      if (socket[kState].exclusive && !socket[kState].destroyed) {
+      socket[kState].conns.delete(this.id)
+      if (this.isClient && !socket[kState].destroyed && (socket[kState].exclusive || socket[kState].conns.size === 0)) {
         socket.close()
         socket[kState].destroyed = true
       }
@@ -569,15 +575,19 @@ export class SessionState {
 }
 
 export class ACKHandler {
+  misshit: number
   lowestAcked: number
   largestAcked: number
   numbersAcked: number[]
   largestAckedTime: number // timestamp
+  lastAckedTime: number // timestamp
   constructor () {
-    this.lowestAcked = 1
-    this.largestAcked = 1
+    this.misshit = 0
+    this.lowestAcked = 0
+    this.largestAcked = 0
     this.numbersAcked = []
     this.largestAckedTime = 0
+    this.lastAckedTime = Date.now()
   }
 
   lowest (packetNumber: number) {
@@ -586,14 +596,35 @@ export class ACKHandler {
     }
   }
 
-  ack (packetNumber: number, rcvTime: number): number {
+  ack (packetNumber: number, rcvTime: number): boolean {
     if (packetNumber < this.lowestAcked) {
-      return this.numbersAcked.length // ignore
-    } else if (packetNumber > this.largestAcked) {
+      return false // ignore
+    }
+
+    if (packetNumber > this.largestAcked) {
+      if (packetNumber - this.largestAcked > 1) {
+        this.misshit += 1
+      }
       this.largestAcked = packetNumber
       this.largestAckedTime = rcvTime
+    } else if (Math.abs(packetNumber - this.numbersAcked[0]) > 1) {
+      this.misshit += 1
     }
-    return this.numbersAcked.unshift(packetNumber)
+
+    let shouldAck = this.numbersAcked.unshift(packetNumber) >= 511 // 256 blocks + 255 gaps, too many packets, should ack
+    if (this.misshit > 16) {
+      shouldAck = true
+    }
+    const timeSpan = rcvTime - this.lastAckedTime
+    if (timeSpan >= 512) {
+      shouldAck = true
+    }
+    if (shouldAck) {
+      debug(`should ACK, largestAcked: %d, lowestAcked: %d, misshit: %d, numbersAcked: %d, timeSpan: %d`,
+        this.largestAcked, this.lowestAcked, this.misshit, this.numbersAcked.length, timeSpan)
+      this.lastAckedTime = rcvTime
+    }
+    return shouldAck
   }
 
   toFrame (): AckFrame | null {
@@ -601,10 +632,7 @@ export class ACKHandler {
     if (numbersAcked.length === 0) {
       return null
     }
-    // if there is no missed packet number, we do not need ack as quickly as possible
-    if (numbersAcked.length < 256 && numbersAcked.length >= (this.largestAcked - this.lowestAcked + 1)) {
-      return null
-    }
+
     numbersAcked.sort((a, b) => b - a)
     if (numbersAcked[0] <= this.lowestAcked) {
       numbersAcked.length = 0
@@ -614,7 +642,6 @@ export class ACKHandler {
 
     const frame = new AckFrame()
     frame.largestAcked = this.largestAcked
-    frame.lowestAcked = this.lowestAcked
     frame.largestAckedTime = this.largestAckedTime
 
     let range = new AckRange(this.largestAcked, this.largestAcked)
@@ -633,27 +660,23 @@ export class ACKHandler {
         range = new AckRange(num, num)
       } // else ingnore
     }
-    if (range.first > frame.lowestAcked) {
-      frame.ackRanges.push(range)
-      frame.ackRanges.push(new AckRange(frame.lowestAcked, frame.lowestAcked))
-    } else if (range.first === frame.lowestAcked && frame.ackRanges.length > 0) {
+
+    frame.lowestAcked = range.first
+    if (range.last  < frame.largestAcked) {
       frame.ackRanges.push(range)
     }
 
     if (frame.ackRanges.length === 0) {
       this.lowestAcked = this.largestAcked
       numbersAcked.length = 1
-    } else {
-      this.lowestAcked = frame.ackRanges[frame.ackRanges.length - 1].first // update by StopWaiting
-    }
-
-    // if ackRanges.length > 256, ignore some ranges between
-    if (frame.ackRanges.length > 256) {
+    } else if (frame.ackRanges.length > 256) {
+      // if ackRanges.length > 256, ignore some ranges between
       frame.ackRanges[255] = frame.ackRanges[frame.ackRanges.length - 1]
       frame.ackRanges.length = 256
     }
-    debug(`after build AckFrame, largestAcked: %d, lowestAcked: %d, numbersAcked %j`,
+    debug(`after build AckFrame, largestAcked: %d, lowestAcked: %d, numbersAcked: %j`,
       this.largestAcked, this.lowestAcked, numbersAcked)
+    this.misshit = 0
     return frame
   }
 }

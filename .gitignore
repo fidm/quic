@@ -27,7 +27,7 @@ node_modules
 # Users Environment Variables
 .lock-wscript
 
-debug
+debug*
 dist
 .DS_Store
 package-lock.json

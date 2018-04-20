@@ -102,7 +102,7 @@ export const MaxOffset = Number.MAX_SAFE_INTEGER
 export const MaxReceivePacketSize = 1350
 
 export const MaxStreamBufferSize = 1280 // todo
-export const MaxStreamReadCacheSize = 1024 * 256 // todo
+export const MaxStreamReadCacheSize = 1024 * 1024 * 2 // todo
 
 // DefaultTCPMSS is the default maximum packet size used in the Linux TCP implementation.
 // Used in QUIC for congestion window computations in bytes.

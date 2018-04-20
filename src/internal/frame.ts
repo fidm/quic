@@ -176,12 +176,14 @@ export class StreamFrame extends Frame {
         if (bufv.length < bufv.v.end) {
           throw new QuicError('QUIC_INVALID_STREAM_DATA')
         }
-        data = bufv.slice(bufv.v.start, bufv.v.end)
+        data = Buffer.allocUnsafe(len) // should copy to release socket buffer
+        bufv.copy(data, 0, bufv.v.start, bufv.v.end)
       }
     } else if (bufv.length > bufv.v.end) {
       // the STREAM frame extends to the end of the Packet.
       bufv.v.walk(bufv.length - bufv.v.end)
-      data = bufv.slice(bufv.v.start, bufv.v.end)
+      data = Buffer.allocUnsafe(bufv.v.end - bufv.v.start) // should copy to release socket buffer
+      bufv.copy(data, 0, bufv.v.start, bufv.v.end)
     }
 
     const frame = new StreamFrame(streamID, offset, data, isFIN)
@@ -248,11 +250,11 @@ export class StreamFrame extends Frame {
 
 /** AckRange representing a range for ACK. */
 export class AckRange {
-  first: number
   last: number
+  first: number
   constructor (firstPacketNumberValue: number, lastPacketNumberValue: number) {
-    this.first = firstPacketNumberValue // PacketNumber value
     this.last = lastPacketNumberValue // last >= first
+    this.first = firstPacketNumberValue // PacketNumber value
   }
 
   len (): number {

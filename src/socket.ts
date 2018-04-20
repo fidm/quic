@@ -8,7 +8,9 @@ import {
   kState,
 } from './internal/symbol'
 import { Packet } from './internal/packet'
+import { QuicError } from './internal/error'
 import { BufferVisitor, Visitor } from './internal/common'
+import { Client } from './client';
 
 export interface AddressInfo {
   address: string;
@@ -24,9 +26,11 @@ export interface Socket extends UDPSocket {
 export class SocketState {
   exclusive: boolean // is shared between all sessions or not
   destroyed: boolean
+  conns: Map<string, Client>
   constructor () {
     this.exclusive = true
     this.destroyed = false
+    this.conns = new Map()
   }
 }
 
@@ -45,7 +49,10 @@ const bufferPool: BufferVisitor[] = []
 export function sendPacket (socket: Socket, packet: Packet, remotePort: number, remoteAddr: string, callback: (err: any) => void) {
   const byteLen = packet.byteLen()
   if (byteLen > 1500) {
-    return callback(new Error('packet size too large!'))
+    return callback(new QuicError('packet size too large!'))
+  }
+  if (socket[kState].destroyed) {
+    return callback(new QuicError('socket destroyed!'))
   }
 
   let bufv = bufferPool.shift()
@@ -54,8 +61,8 @@ export function sendPacket (socket: Socket, packet: Packet, remotePort: number, 
   }
   bufv.v.reset(0, 0)
   packet.writeTo(bufv)
-  socket.send(bufv.slice(0, bufv.v.end), remotePort, remoteAddr, (err: any) => {
+  socket.send(bufv, 0, bufv.v.end, remotePort, remoteAddr, (err: any) => {
     bufferPool.push(bufv as BufferVisitor)
-    callback(err)
+    callback(QuicError.checkAny(err))
   })
 }

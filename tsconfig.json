@@ -23,7 +23,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": false
+    "esModuleInterop": true
   },
   "include": [
     "src/**/*.ts"

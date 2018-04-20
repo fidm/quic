@@ -81,7 +81,7 @@ import {
 // 0x40 is reserved for multipath use.
 // 0x80 is currently unused, and must be set to 0.
 
-export function parsePacket (bufv: BufferVisitor, packetSentBy: SessionType, _version?: string): Packet {
+export function parsePacket (bufv: BufferVisitor, packetSentBy: SessionType): Packet {
   bufv.v.walk(0) // align start and end
   const flag = bufv.readUIntLE(bufv.v.start, 1, true)
 
@@ -362,6 +362,12 @@ export class RegularPacket extends Packet {
   setVersion (version: string) {
     this.flag |= 0b00000001
     this.version = version
+  }
+
+  setPacketNumber (packetNumber: PacketNumber) {
+    this.packetNumber = packetNumber
+    this.flag &= 0b11001111
+    this.flag |= (packetNumber.flagBits() << 4)
   }
 
   /**
