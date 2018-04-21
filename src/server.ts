@@ -163,6 +163,7 @@ export class Server extends EventEmitter {
     const socket = this[kSocket]
     if (socket != null && !socket[kState].destroyed) {
       socket.close()
+      socket.removeAllListeners()
       socket[kState].destroyed = true
     }
     process.nextTick(() => this.emit('close'))

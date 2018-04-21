@@ -370,10 +370,15 @@ export class RegularPacket extends Packet {
     this.flag |= (packetNumber.flagBits() << 4)
   }
 
-  /**
-   * @param {Array<Frame>} frames
-   * @return {this}
-   */
+  needAck (): boolean {
+    for (const frame of this.frames) {
+      if (frame.isRetransmittable()) {
+        return true
+      }
+    }
+    return false
+  }
+
   addFrames (...frames: Frame[]): this {
     this.frames.push(...frames)
     return this

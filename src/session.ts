@@ -231,7 +231,7 @@ export class Session extends EventEmitter {
     const packetNumber = packet.packetNumber.valueOf()
 
     this[kState].lastNetworkActivityTime = rcvTime
-    if (this[kACKHandler].ack(packetNumber, rcvTime)) {
+    if (this[kACKHandler].ack(packetNumber, rcvTime, packet.needAck())) {
       this._trySendAckFrame()
     }
     debug(`session %s - received RegularPacket, packetNumber: %d, frames: %j`,
@@ -486,6 +486,7 @@ export class Session extends EventEmitter {
       socket[kState].conns.delete(this.id)
       if (this.isClient && !socket[kState].destroyed && (socket[kState].exclusive || socket[kState].conns.size === 0)) {
         socket.close()
+        socket.removeAllListeners()
         socket[kState].destroyed = true
       }
       this[kSocket] = null
@@ -596,7 +597,7 @@ export class ACKHandler {
     }
   }
 
-  ack (packetNumber: number, rcvTime: number): boolean {
+  ack (packetNumber: number, rcvTime: number, needAck: boolean): boolean {
     if (packetNumber < this.lowestAcked) {
       return false // ignore
     }
@@ -612,6 +613,12 @@ export class ACKHandler {
     }
 
     let shouldAck = this.numbersAcked.unshift(packetNumber) >= 511 // 256 blocks + 255 gaps, too many packets, should ack
+    if (!needAck && this.largestAcked - this.lowestAcked === 1) {
+      // ACK frame
+      this.lowestAcked = this.largestAcked
+      this.numbersAcked.length = 1
+      return false
+    }
     if (this.misshit > 16) {
       shouldAck = true
     }

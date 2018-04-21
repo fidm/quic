@@ -142,7 +142,11 @@ suite('chaos testing', function () {
         if (Math.random() < lossRatio) {
           return // packet loss
         }
-        serverListener.call(this, msg, rinfo)
+        if (Math.random() < 0.5) {
+          setTimeout(() => serverListener.call(this, msg, rinfo)) // out-of-order
+        } else {
+          serverListener.call(this, msg, rinfo)
+        }
       })
 
       const cli1 = new Client()
@@ -156,7 +160,11 @@ suite('chaos testing', function () {
         if (Math.random() < lossRatio) {
           return // packet loss
         }
-        clientListener.call(this, msg, rinfo)
+        if (Math.random() < 0.5) {
+          setTimeout(() => clientListener.call(this, msg, rinfo)) // out-of-order
+        } else {
+          clientListener.call(this, msg, rinfo)
+        }
       })
 
       const stream1 = cli1.request()
