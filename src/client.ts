@@ -4,12 +4,12 @@
 // **License:** MIT
 
 import { debuglog } from 'util'
+import { MaxReceivePacketSize } from './internal/constant'
 import { lookup, Visitor } from './internal/common'
 import { QuicError } from './internal/error'
 import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import {
   ConnectionID,
-  MaxReceivePacketSize,
   SocketAddress,
   SessionType,
   getVersion,

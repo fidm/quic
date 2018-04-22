@@ -7,6 +7,16 @@ import { debuglog } from 'util'
 import { EventEmitter } from 'events'
 import { randomBytes } from 'crypto'
 import {
+  PingFrameDelay,
+  DefaultIdleTimeout,
+  MaxStreamWaitingTimeout,
+  DefaultMaxIncomingStreams,
+  ReceiveConnectionWindow,
+  DefaultMaxReceiveConnectionWindowClient,
+  DefaultMaxReceiveConnectionWindowServer,
+  // DefaultMaxIncomingStreams,
+ } from './internal/constant'
+import {
   Offset,
   SessionType,
   StreamID,
@@ -14,12 +24,10 @@ import {
   ConnectionID,
   SocketAddress,
   QuicTag,
-  PingFrameDelay,
-  DefaultIdleTimeout,
-  MaxStreamWaitingTimeout,
  } from './internal/protocol'
 import {
   kID,
+  kFC,
   kStreams,
   kSocket,
   kState,
@@ -42,9 +50,11 @@ import {
   ConnectionCloseFrame,
   WindowUpdateFrame,
   StopWaitingFrame,
+  BlockedFrame,
 } from './internal/frame'
 import { Packet, ResetPacket, RegularPacket } from './internal/packet'
 import { QuicError, StreamError } from './internal/error'
+import { ConnectionFlowController } from './internal/flowcontrol'
 
 import { Socket, sendPacket } from './socket'
 import { Stream } from './stream'
@@ -74,6 +84,7 @@ export class Session extends EventEmitter {
   protected [kVersion]: string
   protected [kNextPacketNumber]: PacketNumber
   protected [kUnackedPackets]: Queue<RegularPacket>
+  protected [kFC]: ConnectionFlowController
   constructor (id: ConnectionID, type: SessionType) {
     super()
 
@@ -88,7 +99,9 @@ export class Session extends EventEmitter {
     this[kIntervalCheck] = null
     this[kNextPacketNumber] = new PacketNumber(1)
     this[kUnackedPackets] = new Queue() // up to 1000
-    this.setMaxListeners((2 ** 31) - 1)
+    this[kFC] = this.isClient ? // TODO
+      new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowClient) :
+      new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowServer)
   }
 
   get id (): string {
@@ -125,7 +138,7 @@ export class Session extends EventEmitter {
     }
   }
 
-  _sendFrame (frame: Frame, callback: (...args: any[]) => void) {
+  _sendFrame (frame: Frame, callback?: (...args: any[]) => void) {
     const packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
     const regularPacket = new RegularPacket(this[kID], packetNumber, randomBytes(32))
@@ -143,11 +156,7 @@ export class Session extends EventEmitter {
     regularPacket.isRetransmittable = false
 
     debug(`session %s - write StopWaitingFrame, packetNumber: %d, leastUnacked: %d`, this.id, packetNumber.valueOf(), leastUnacked)
-    this._sendPacket(regularPacket, (err) => {
-      if (err != null) {
-        this.destroy(err)
-      }
-    })
+    this._sendPacket(regularPacket)
   }
 
   _retransmit (frame: AckFrame): number {
@@ -170,11 +179,7 @@ export class Session extends EventEmitter {
       unackedPackets.shift()
       packet.setPacketNumber(this[kNextPacketNumber])
       this[kNextPacketNumber] = packet.packetNumber.nextNumber()
-      this._sendPacket(packet, (err) => {
-        if (err != null) {
-          this.destroy(err)
-        }
-      })
+      this._sendPacket(packet)
       count += 1
       packet = unackedPackets.first()
     }
@@ -182,8 +187,15 @@ export class Session extends EventEmitter {
     return count
   }
 
-  _sendPacket (packet: Packet, callback: (...args: any[]) => void) {
+  _sendPacket (packet: Packet, callback?: (...args: any[]) => void) {
     const socket = this[kSocket]
+    if (callback == null) {
+      callback = (err) => {
+        if (err != null) {
+          this.destroy(err)
+        }
+      }
+    }
     if (socket == null) {
       return callback(QuicError.fromError(QuicError.QUIC_PACKET_WRITE_ERROR))
     }
@@ -192,20 +204,37 @@ export class Session extends EventEmitter {
     }
 
     if (packet.isRegular()) {
+      const _packet = packet as RegularPacket
       if (this.isClient && !this[kState].versionNegotiated) {
-        (packet as RegularPacket).setVersion(this[kVersion])
+        _packet.setVersion(this[kVersion])
       }
-      if ((packet as RegularPacket).isRetransmittable) {
+      if (_packet.isRetransmittable) {
         this[kUnackedPackets].push(packet as RegularPacket)
         if (this[kUnackedPackets].length > 4096) {
           return callback(QuicError.fromError(QuicError.QUIC_TOO_MANY_OUTSTANDING_SENT_PACKETS))
         }
       }
+      debug(`session %s - write RegularPacket, packetNumber: %d, frames: %j`,
+        this.id, _packet.packetNumber.valueOf(), _packet.frames.map((frame) => frame.name))
     }
+
     sendPacket(socket, packet, this[kState].remotePort, this[kState].remoteAddress, callback)
     // debug(`session %s - write packet: %j`, this.id, packet.valueOf())
     // const buf = toBuffer(packet)
     // socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
+  }
+
+  _sendWindowUpdate (offset: Offset, streamID?: StreamID) {
+    if (streamID == null) {
+      // update for session
+      streamID = new StreamID(0)
+    }
+    debug(`session %s - write WindowUpdateFrame, streamID: %d, offset: %d`, this.id, streamID.valueOf(), offset)
+    this._sendFrame(new WindowUpdateFrame(streamID, offset), (err: any) => {
+      if (err != null) {
+        this.emit('error', err)
+      }
+    })
   }
 
   _trySendAckFrame () {
@@ -259,6 +288,7 @@ export class Session extends EventEmitter {
           // The BLOCKED frame is used to indicate to the remote endpoint that this endpoint is
           // ready to send data (and has data to send), but is currently flow control blocked.
           // It is a purely informational frame.
+          this._handleBlockedFrame(frame as RstStreamFrame, rcvTime)
           break
         case 'CONGESTION_FEEDBACK':
           // The CONGESTION_FEEDBACK frame is an experimental frame currently not used.
@@ -292,7 +322,12 @@ export class Session extends EventEmitter {
         return
       }
       stream = new Stream(frame.streamID, this, {})
+      if (this[kState].liveStreamCount >= DefaultMaxIncomingStreams) {
+        stream.close(QuicError.fromError(QuicError.QUIC_TOO_MANY_AVAILABLE_STREAMS))
+        return
+      }
       this[kStreams].set(streamID, stream)
+      this[kState].liveStreamCount += 1
       this.emit('stream', stream)
     } else if (stream.destroyed) {
       return
@@ -337,18 +372,19 @@ export class Session extends EventEmitter {
     debug(`session %s - received WindowUpdateFrame, streamID: %d, offset: %d`,
       this.id, streamID, offset)
     if (streamID === 0) {
-      if (offset > this[kState].outgoingWindowByteOffset) {
-        this[kState].outgoingWindowByteOffset = offset
-      }
+      this[kFC].updateMaxSendOffset(offset)
     } else {
       const stream = this[kStreams].get(streamID)
       if (stream != null && !stream.destroyed) {
-        if (offset > stream[kState].outgoingWindowByteOffset) {
-          stream[kState].outgoingWindowByteOffset = offset
+        if (stream[kFC].updateMaxSendOffset(offset)) {
           stream._tryFlushCallbacks()
         }
       }
     }
+  }
+
+  _handleBlockedFrame (frame: BlockedFrame, rcvTime: number) {
+    this[kFC].updateBlockedFrame(frame.streamID.valueOf(), rcvTime)
   }
 
   _intervalCheck (time: number) {
@@ -374,28 +410,19 @@ export class Session extends EventEmitter {
     return
   }
 
-  _windowUpdate (offset: Offset, streamID?: StreamID) {
-    if (streamID == null) {
-      // update for session
-      streamID = new StreamID(0)
-    }
-    debug(`session %s - write WindowUpdateFrame, streamID: %d, offset: %d`, this.id, streamID.valueOf(), offset)
-    this._sendFrame(new WindowUpdateFrame(streamID, offset), (err: any) => {
-      if (err != null) {
-        this.emit('error', err)
-      }
-    })
-  }
-
   request (options?: any) {
     if (this[kState].shuttingDown) {
       throw StreamError.fromError(StreamError.QUIC_STREAM_PEER_GOING_AWAY)
     }
+    if (this[kState].liveStreamCount >= DefaultMaxIncomingStreams) {
+      throw QuicError.fromError(QuicError.QUIC_TOO_MANY_OPEN_STREAMS)
+    }
+
     const streamID = this[kNextStreamID]
     this[kNextStreamID] = streamID.nextID()
     const stream = new Stream(streamID, this, (options == null ? {} : options))
-    const _streamID = streamID.valueOf()
-    this[kStreams].set(_streamID, stream)
+    this[kStreams].set(streamID.valueOf(), stream)
+    this[kState].liveStreamCount += 1
     return stream
   }
 
@@ -537,6 +564,7 @@ export class SessionState {
   bytesRead: number
   bytesWritten: number
   idleTimeout: number
+  liveStreamCount: number
   lastNetworkActivityTime: number
 
   destroyed: boolean
@@ -544,8 +572,6 @@ export class SessionState {
   shuttingDown: boolean
   versionNegotiated: boolean
   keepAlivePingSent: boolean
-  maxIncomingByteOffset: number
-  outgoingWindowByteOffset: number
 
   constructor () {
     this.localFamily = ''
@@ -562,6 +588,7 @@ export class SessionState {
     this.bytesRead = 0
     this.bytesWritten = 0
     this.idleTimeout = DefaultIdleTimeout
+    this.liveStreamCount = 0
     this.lastNetworkActivityTime = Date.now()
 
     this.destroyed = false
@@ -569,9 +596,6 @@ export class SessionState {
     this.shuttingDown = false // send or receive GOAWAY
     this.versionNegotiated = false
     this.keepAlivePingSent = false
-    // Both stream and session windows start with a default value of 16 KB
-    this.maxIncomingByteOffset = 16 * 1024
-    this.outgoingWindowByteOffset = 16 * 1024
   }
 }
 

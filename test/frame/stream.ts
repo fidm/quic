@@ -37,7 +37,7 @@ suite('STREAM Frame', function () {
     ok(buf.equals(toBuffer(StreamFrame.fromBuffer(buf))))
 
     streamID = streamID.nextID()
-    offset = offset.nextOffset(data.length)
+    offset = new Offset(offset.valueOf() + data.length)
     data = bufferFromBytes(['higklmn'])
     streamFrame = new StreamFrame(streamID, offset, data, false)
 
@@ -53,7 +53,7 @@ suite('STREAM Frame', function () {
     ok(buf.equals(toBuffer(StreamFrame.fromBuffer(buf))))
 
     streamID = streamID.nextID()
-    offset = offset.nextOffset(data.length)
+    offset = new Offset(offset.valueOf() + data.length)
     data = bufferFromBytes(['opqrst'])
     streamFrame = new StreamFrame(streamID, offset, data, false)
 
@@ -69,7 +69,7 @@ suite('STREAM Frame', function () {
     ok(buf.equals(toBuffer(StreamFrame.fromBuffer(buf))))
 
     streamID = streamID.nextID()
-    offset = offset.nextOffset(data.length)
+    offset = new Offset(offset.valueOf() + data.length)
     data = bufferFromBytes(['uvwxyz'])
     streamFrame = new StreamFrame(streamID, offset, data, true)
 

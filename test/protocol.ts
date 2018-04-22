@@ -363,15 +363,6 @@ suite('QUIC Protocol', function () {
       equal(new Offset(0).byteLen(true), 8)
     })
 
-    it('offset.nextOffset', function () {
-      let offset = new Offset(64)
-      strictEqual(offset.valueOf(), 64)
-      offset = offset.nextOffset(64)
-      strictEqual(offset.valueOf(), 128)
-      offset = offset.nextOffset(32)
-      strictEqual(offset.valueOf(), 160)
-    })
-
     it('offset.flagBits()', function () {
       let offset = Offset.fromBuffer(bufferFromBytes([]), 0)
       strictEqual(offset.flagBits(), 0b000)

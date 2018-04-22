@@ -7,14 +7,21 @@ import { debuglog } from 'util'
 import { Duplex } from 'stream'
 import { StreamError, QuicError } from './internal/error'
 import {
+  MaxStreamDataSize,
+  MaxStreamReadCacheSize,
+  ReceiveStreamWindow,
+  DefaultMaxReceiveStreamWindowClient,
+  DefaultMaxReceiveStreamWindowServer,
+} from './internal/constant'
+import {
   Offset,
   StreamID,
-  MaxStreamBufferSize,
-  MaxStreamReadCacheSize,
 } from './internal/protocol'
-import { StreamFrame, RstStreamFrame } from './internal/frame'
+import { StreamFrame, RstStreamFrame, BlockedFrame } from './internal/frame'
+import { StreamFlowController } from './internal/flowcontrol'
 import {
   kID,
+  kFC,
   kSession,
   kState,
 } from './internal/symbol'
@@ -38,15 +45,18 @@ export class Stream extends Duplex {
   private [kID]: StreamID
   private [kSession]: Session
   private [kState]: StreamState
+  private [kFC]: StreamFlowController
   constructor (streamID: StreamID, session: Session, options: any) {
     options.allowHalfOpen = true
     options.objectMode = false
     super(options)
-    // this.cork()
 
     this[kID] = streamID
     this[kSession] = session
     this[kState] = new StreamState()
+    this[kFC] = session.isClient ? // TODO: small window will make "packets loss" test failure
+      new StreamFlowController(ReceiveStreamWindow, DefaultMaxReceiveStreamWindowClient, session[kFC]) :
+      new StreamFlowController(ReceiveStreamWindow, DefaultMaxReceiveStreamWindowServer, session[kFC])
     this.once('close', () => this[kState].lastActivityTime = Date.now())
     debug(`session %s - new stream: %d`, session.id, streamID.valueOf())
   }
@@ -69,17 +79,17 @@ export class Stream extends Duplex {
   }
 
   get bytesRead (): number {
-    return this[kState].bytesRead
+    return this[kFC].consumedOffset
   }
 
   get bytesWritten (): number {
-    return this[kState].bytesWritten
+    return this[kFC].writtenOffset
   }
 
   // close closes the stream with an error.
   close (err: any): Promise<any> {
     this[kState].localFIN = true
-    const offset = this[kState].writeOffset
+    const offset = new Offset(this[kFC].writtenOffset)
     const rstStreamFrame = new RstStreamFrame(this[kID], offset, StreamError.fromError(err))
 
     debug(`stream %s - close stream, offset: %d, error: %j`, this.id, offset.valueOf(), err)
@@ -104,12 +114,12 @@ export class Stream extends Duplex {
       return callback(null)
     }
     const bufs = []
-    while (chunk.length > MaxStreamBufferSize) {
-      bufs.push(chunk.slice(0, MaxStreamBufferSize))
-      chunk = chunk.slice(MaxStreamBufferSize)
+    while (chunk.length > MaxStreamDataSize) {
+      bufs.push(chunk.slice(0, MaxStreamDataSize))
+      chunk = chunk.slice(MaxStreamDataSize)
     }
     bufs.push(chunk)
-    this[kState].chunksList.push(bufs, callback)
+    this[kState].outgoingChunksList.push(bufs, callback)
     this._tryFlushCallbacks()
   }
 
@@ -136,31 +146,31 @@ export class Stream extends Duplex {
 
     let buf = Buffer.concat(list, len)
     const bufs = []
-    while (buf.length > MaxStreamBufferSize) {
-      bufs.push(buf.slice(0, MaxStreamBufferSize))
-      buf = buf.slice(MaxStreamBufferSize)
+    while (buf.length > MaxStreamDataSize) {
+      bufs.push(buf.slice(0, MaxStreamDataSize))
+      buf = buf.slice(MaxStreamDataSize)
     }
     bufs.push(buf)
-    this[kState].chunksList.push(bufs, callback)
+    this[kState].outgoingChunksList.push(bufs, callback)
     this._tryFlushCallbacks()
   }
 
   _final (callback: (...args: any[]) => void): void {
-    this[kState].chunksList.push([], callback)
+    this[kState].outgoingChunksList.push([], callback)
     this._tryFlushCallbacks()
   }
 
   _read (size: number = 0) {
-    let data = this[kState].readQueue.read()
+    let data = this[kState].incomingSequencer.read()
     while (data != null) {
       if (this.push(data) && size > data.length) {
         size -= data.length
-        data = this[kState].readQueue.read()
+        data = this[kState].incomingSequencer.read()
         continue
       }
       break
     }
-    if (!this[kState].ended && this[kState].readQueue.isEnd()) {
+    if (!this[kState].ended && this[kState].incomingSequencer.isFIN()) {
       this[kState].ended = true
       this.push(null)
     }
@@ -169,20 +179,32 @@ export class Stream extends Duplex {
   _destroy (err: any, callback: (...args: any[]) => void) {
     debug(`stream %s - stream destroyed, error: %j`, this.id, err)
 
+    this[kSession][kState].liveStreamCount -= 1
     const state = this[kState]
     state.localFIN = true
     state.remoteFIN = true
     state.aborted = true
     state.destroyed = true
     state.finished = true
-    state.readQueue.reset()
-    state.chunksList.reset()
+    state.incomingSequencer.reset()
+    state.outgoingChunksList.reset()
 
     err = StreamError.checkAny(err)
     if (err != null && err.isNoError) {
       err = null
     }
     callback(err)
+  }
+
+  _sendBlockFrame () {
+    this[kSession]._sendFrame(new BlockedFrame(this[kID]))
+  }
+
+  _trySendUpdateWindow () {
+    if (this[kFC].shouldUpdateWindow()) {
+      const offset = this[kFC].updateWindowOffset()
+      this[kSession]._sendWindowUpdate(new Offset(offset), this[kID])
+    }
   }
 
   _handleFrame (frame: StreamFrame, rcvTime: number) {
@@ -193,29 +215,31 @@ export class Stream extends Duplex {
     debug(`stream %s - received StreamFrame, offset: %d, data size: %d, isFIN: %s`,
       this.id, offset, byteLen, frame.isFIN)
 
+    this[kFC].updateHighestReceived(offset + byteLen)
+    if (this[kFC].isBlocked()) {
+      this.emit('error', new Error('The window of byte offset overflowed'))
+      this.close(StreamError.fromError(StreamError.QUIC_ERROR_PROCESSING_STREAM))
+      return
+    }
+
     if (frame.isFIN) {
       this[kState].remoteFIN = true
-      this[kState].readQueue.setEndOffset(offset + byteLen)
+      this[kState].incomingSequencer.setFinalOffset(offset + byteLen)
     }
     if (frame.data != null) {
-      if (this[kState].readQueue.hasOffset(offset)) {
+      if (this[kState].incomingSequencer.hasOffset(offset)) {
         return // duplicated frame
       }
-      if (offset > this[kState].maxIncomingByteOffset) {
-        this.emit('error', new Error('The window of byte offset overflowed'))
-        this.close(StreamError.fromError(StreamError.QUIC_ERROR_PROCESSING_STREAM))
-        return
-      }
-      this[kState].bytesRead += byteLen
-      this[kState].readQueue.push(frame)
 
+      this[kState].incomingSequencer.push(frame)
       if (!frame.isFIN) {
-        this._tryUpdateWindow(offset)
+        this._trySendUpdateWindow()
       }
     }
 
-    this._read(MaxStreamBufferSize * 10) // try to read all
-    if (this[kState].readQueue.byteLen > MaxStreamReadCacheSize) {
+    this._read(MaxStreamDataSize * 10) // try to read all
+    this[kFC].updateConsumedOffset(this[kState].incomingSequencer.consumedOffset)
+    if (this[kState].incomingSequencer.byteLen > MaxStreamReadCacheSize) {
       this.emit('error', new Error('Too large caching, stream data maybe lost'))
       this.destroy(StreamError.fromError(StreamError.QUIC_ERROR_PROCESSING_STREAM))
       return
@@ -225,7 +249,7 @@ export class Stream extends Duplex {
   _handleRstFrame (frame: RstStreamFrame, rcvTime: number) {
     this[kState].lastActivityTime = rcvTime
     this[kState].remoteFIN = true
-    this[kState].readQueue.setEndOffset(frame.offset.valueOf())
+    this[kState].incomingSequencer.setFinalOffset(frame.offset.valueOf())
     debug(`stream %s - received RstStreamFrame, offset: %d, error: %j`, this.id, frame.offset.valueOf(), frame.error)
     if (this[kState].localFIN) {
       this.destroy(frame.error)
@@ -236,15 +260,8 @@ export class Stream extends Duplex {
     return
   }
 
-  _tryUpdateWindow (offset: number) {
-    if (offset * 2 > this[kState].maxIncomingByteOffset) {
-      this[kState].maxIncomingByteOffset *= 2
-      this[kSession]._windowUpdate(new Offset(this[kState].maxIncomingByteOffset), this[kID])
-    }
-  }
-
   _tryFlushCallbacks () {
-    const entry = this[kState].chunksList.first()
+    const entry = this[kState].outgoingChunksList.first()
     if (entry == null || this[kState].flushing) {
       return
     }
@@ -258,22 +275,22 @@ export class Stream extends Duplex {
     this._flushData(entry.data, (err) => {
       this[kState].flushing = false
       if (entry.data.length === 0) {
-        this[kState].chunksList.shift()
+        this[kState].outgoingChunksList.shift()
         callback(err)
       }
 
-      if (err == null && this[kState].chunksList.pendingCb > 0) {
+      if (err == null && this[kState].outgoingChunksList.pendingCb > 0) {
         return this._tryFlushCallbacks()
       }
     })
   }
 
   private _isRemoteWriteable (byteLen: number): boolean {
-    if ((byteLen > 0) &&
-      (this[kState].writeOffset.valueOf() + byteLen > this[kState].outgoingWindowByteOffset)) {
+    if (this[kFC].willBlocked(byteLen)) {
       // should wait for WINDOW_UPDATE
-      debug(`stream %s - wait for WINDOW_UPDATE, writeOffset: %d, outgoingOffset: %d, to write size: %d`,
-        this.id, this[kState].writeOffset.valueOf(), this[kState].outgoingWindowByteOffset, byteLen)
+      debug(`stream %s - wait for WINDOW_UPDATE, writtenOffset: %d, maxSendOffset: %d, to write size: %d`,
+        this.id, this[kFC].writtenOffset, this[kFC].maxSendOffset, byteLen)
+      this._sendBlockFrame()
       return false
     }
     return true
@@ -281,11 +298,10 @@ export class Stream extends Duplex {
 
   private _flushData (fixedChunks: Buffer[], callback: (err: any) => void): void {
     const buf = fixedChunks.shift()
-    const offet = this[kState].writeOffset
+    const offet = new Offset(this[kFC].writtenOffset)
     const byteLen = buf == null ? 0 : buf.length
     if (byteLen > 0) {
-      this[kState].writeOffset = offet.nextOffset(byteLen)
-      this[kState].bytesWritten += byteLen
+      this[kFC].updateWrittenOffset(byteLen)
     }
     const streamFrame = new StreamFrame(this[kID], offet, buf, buf == null)
     if (streamFrame.isFIN) {
@@ -312,15 +328,9 @@ class StreamState {
   aborted: boolean
   destroyed: boolean
   finished: boolean
-  bytesRead: number
-  bytesWritten: number
   lastActivityTime: number
-  readQueue: StreamFramesSorter
-  chunksList: StreamChunksList
-  writeOffset: Offset
-  flushBuffer: Buffer
-  maxIncomingByteOffset: number
-  outgoingWindowByteOffset: number
+  incomingSequencer: StreamSequencer
+  outgoingChunksList: StreamChunksList
   constructor () {
     this.localFIN = false // local endpoint will not send data
     this.remoteFIN = false // remote endpoint should not send data
@@ -329,16 +339,9 @@ class StreamState {
     this.aborted = false
     this.destroyed = false
     this.finished = false
-    this.bytesRead = 0
-    this.bytesWritten = 0
     this.lastActivityTime = Date.now()
-    this.readQueue = new StreamFramesSorter()
-    this.chunksList = new StreamChunksList()
-    this.writeOffset = new Offset(0)
-    this.flushBuffer = Buffer.alloc(MaxStreamBufferSize)
-    // Both stream and session windows start with a default value of 16 KB
-    this.maxIncomingByteOffset = 16 * 1024
-    this.outgoingWindowByteOffset = 16 * 1024
+    this.incomingSequencer = new StreamSequencer()
+    this.outgoingChunksList = new StreamChunksList()
   }
 }
 
@@ -353,7 +356,7 @@ class StreamChunksEntry {
     this.next = entry
     this.byteLen = 0
     for (const chunk of bufs) {
-      if (chunk.length > MaxStreamBufferSize) {
+      if (chunk.length > MaxStreamDataSize) {
         throw new QuicError(`chunk size too large: ${chunk.length}`)
       }
       this.byteLen += chunk.length
@@ -424,22 +427,23 @@ class StreamFrameEntry {
   }
 }
 
-class StreamFramesSorter {
+// sequencer
+class StreamSequencer {
   head: StreamFrameEntry | null
   byteLen: number
-  readOffset: number
-  endOffset: number
+  consumedOffset: number
+  finalOffset: number
   pendingOffsets: Set<number>
   constructor () {
     this.head = null
     this.byteLen = 0
-    this.readOffset = 0
-    this.endOffset = -1
+    this.consumedOffset = 0
+    this.finalOffset = -1
     this.pendingOffsets = new Set()
   }
 
   hasOffset (offset: number): boolean {
-    if (offset < this.readOffset) {
+    if (offset < this.consumedOffset) {
       return true
     }
     return this.pendingOffsets.has(offset)
@@ -448,17 +452,17 @@ class StreamFramesSorter {
   reset () {
     this.head = null
     this.byteLen = 0
-    this.readOffset = 0
-    this.endOffset = -1
+    this.consumedOffset = 0
+    this.finalOffset = -1
     this.pendingOffsets.clear()
   }
 
-  setEndOffset (offset: number) {
-    this.endOffset = offset
+  setFinalOffset (offset: number) {
+    this.finalOffset = offset
   }
 
-  isEnd (): boolean {
-    return this.readOffset === this.endOffset
+  isFIN (): boolean {
+    return this.consumedOffset === this.finalOffset
   }
 
   /**
@@ -496,12 +500,12 @@ class StreamFramesSorter {
 
   read (): Buffer | null {
     let data = null
-    if (this.head != null && this.readOffset === this.head.offset) {
+    if (this.head != null && this.consumedOffset === this.head.offset) {
       data = this.head.data
       if (data != null) {
-        this.pendingOffsets.delete(this.readOffset)
+        this.pendingOffsets.delete(this.consumedOffset)
         this.byteLen -= data.length
-        this.readOffset += data.length
+        this.consumedOffset += data.length
       }
       this.head = this.head.next
     }

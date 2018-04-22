@@ -10,6 +10,7 @@ import { QuicError } from './error'
 
 import { kVal } from './symbol'
 import { Visitor, BufferVisitor } from './common'
+import { MaxOffset } from './constant'
 
 const QUIC_VERSIONS = ['Q039']
 
@@ -22,91 +23,6 @@ export enum FamilyType {
   IPv4 = 'IPv4',
   IPv6 = 'IPv6',
 }
-
-// MaxPacketSize is the maximum packet size, including the public header, that we use for sending packets
-// This is the value used by Chromium for a QUIC packet sent using IPv6 (for IPv4 it would be 1370)
-// export const MaxPacketSize = 1350
-
-// MaxFrameAndPublicHeaderSize is the maximum size of a QUIC frame plus PublicHeader
-// const MaxFrameAndPublicHeaderSize = exports.MaxFrameAndPublicHeaderSize = MaxPacketSize - 12 /*crypto signature*/
-
-// DefaultMaxCongestionWindow is the default for the max congestion window
-// const DefaultMaxCongestionWindow = exports.DefaultMaxCongestionWindow = 1000
-
-// InitialCongestionWindow is the initial congestion window in QUIC packets
-// const InitialCongestionWindow = exports.InitialCongestionWindow = 32
-
-// MaxUndecryptablePackets limits the number of undecryptable packets that a
-// session queues for later until it sends a public reset.
-// const MaxUndecryptablePackets = exports.MaxUndecryptablePackets = 10
-
-// PublicResetTimeout is the time to wait before sending a Public Reset when receiving
-// too many undecryptable packets during the handshake
-// const PublicResetTimeout = exports.PublicResetTimeout = 500 // ms
-
-// AckSendDelay is the maximum delay that can be applied to an ACK for a retransmittable packet
-// This is the value Chromium is using
-// const AckSendDelay = exports.AckSendDelay = 25 // ms
-
-// MaxStreamsPerConnection is the maximum value accepted for the number of streams per connection
-// const MaxStreamsPerConnection = exports.MaxStreamsPerConnection = 100
-
-// MaxStreamFrameSorterGaps is the maximum number of gaps between received StreamFrames
-// prevents DoS attacks against the streamFrameSorter
-// const MaxStreamFrameSorterGaps = exports.MaxStreamFrameSorterGaps = 1000
-
-// CryptoMaxParams is the upper limit for the number of parameters in a crypto message.
-// Value taken from Chrome.
-// const CryptoMaxParams = exports.CryptoMaxParams = 128
-
-// CryptoParameterMaxLength is the upper limit for the length of a parameter in a crypto message.
-// const CryptoParameterMaxLength = exports.CryptoParameterMaxLength = 4000
-
-// InitialIdleTimeout is the timeout before the handshake succeeds.
-// const InitialIdleTimeout = exports.InitialIdleTimeout = 5 * 1000 // ms
-
-// DefaultIdleTimeout is the default idle timeout, for the server
-export const DefaultIdleTimeout = 30 * 1000
-
-// MaxIdleTimeout is the max idle timeout
-export const MaxIdleTimeout =  10 * 60 * 1000
-
-// MaxIdleTimeoutServer is the maximum idle timeout that can be negotiated, for the server
-export const MaxIdleTimeoutServer = 1 * 60 * 1000
-
-export const MaxStreamWaitingTimeout = 30 * 1000
-
-// The PING frame should be used to keep a connection alive when a stream is open.
-// The default is to do this after 15 seconds of quiescence, which is much shorter than most NATs time out.
-export const PingFrameDelay = 15 * 1000
-
-// DefaultHandshakeTimeout is the default timeout for a connection until the crypto handshake succeeds.
-// const DefaultHandshakeTimeout = exports.DefaultHandshakeTimeout = 10 * 1000
-
-// ClosedSessionDeleteTimeout the server ignores packets arriving on a connection that is already closed
-// after this time all information about the old connection will be deleted
-// const ClosedSessionDeleteTimeout = exports.ClosedSessionDeleteTimeout = 60 * 1000
-
-// NumCachedCertificates is the number of cached compressed certificate chains, each taking ~1K space
-// const NumCachedCertificates = exports.NumCachedCertificates = 128
-
-// MaxOffset is the maximum value of a ByteCount
-export const MaxOffset = Number.MAX_SAFE_INTEGER
-
-// MaxReceivePacketSize maximum packet size of any QUIC packet, based on
-// ethernet's max size, minus the IP and UDP headers. IPv6 has a 40 byte header,
-// UDP adds an additional 8 bytes.  This is a total overhead of 48 bytes.
-// Ethernet's max packet size is 1500 bytes,  1500 - 48 = 1452.
-// the current QUIC implementation uses a 1350-byte maximum QUIC packet size for IPv6,
-// 1370 for IPv4. Both sizes are without IP and UDP overhead.
-export const MaxReceivePacketSize = 1350
-
-export const MaxStreamBufferSize = 1280 // todo
-export const MaxStreamReadCacheSize = 1024 * 1024 * 2 // todo
-
-// DefaultTCPMSS is the default maximum packet size used in the Linux TCP implementation.
-// Used in QUIC for congestion window computations in bytes.
-// const DefaultTCPMSS = exports.DefaultTCPMSS = 1460
 
 /**
  * Returns supported version.
@@ -468,11 +384,6 @@ export class Offset extends Protocol {
 
   toString (): string {
     return String(this[kVal])
-  }
-
-  nextOffset (byteLen: number): Offset {
-    const value = this[kVal] + byteLen
-    return new Offset(value)
   }
 }
 

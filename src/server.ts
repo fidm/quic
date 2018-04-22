@@ -6,6 +6,7 @@
 import { debuglog } from 'util'
 import { EventEmitter } from 'events'
 
+import { MaxReceivePacketSize } from './internal/constant'
 import { lookup, Visitor } from './internal/common'
 import { QuicError } from './internal/error'
 import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
@@ -19,7 +20,6 @@ import {
   kIntervalCheck,
 } from './internal/symbol'
 import {
-  MaxReceivePacketSize,
   SocketAddress,
   SessionType,
   ConnectionID,
