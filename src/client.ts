@@ -4,11 +4,12 @@
 // **License:** MIT
 
 import { debuglog } from 'util'
-import { MaxReceivePacketSize } from './internal/constant'
-import { lookup, Visitor } from './internal/common'
+import { MaxReceivePacketSize, MaxPacketSizeIPv4, MaxPacketSizeIPv6 } from './internal/constant'
+import { lookup, BufferVisitor } from './internal/common'
 import { QuicError } from './internal/error'
 import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import {
+  FamilyType,
   ConnectionID,
   SocketAddress,
   SessionType,
@@ -68,6 +69,22 @@ export class Client extends Session {
     // initialDelay TODO
   }
 
+  ref () {
+    const socket = this[kSocket]
+    if (socket == null) {
+      throw new Error('Client not connect')
+    }
+    socket.ref()
+  }
+
+  unref () {
+    const socket = this[kSocket]
+    if (socket == null) {
+      throw new Error('Client not connect')
+    }
+    socket.unref()
+  }
+
   async spawn (port: number, address: string = 'localhost'): Promise<Client> {
     if (this[kState].destroyed) {
       throw new Error('Client destroyed')
@@ -92,7 +109,9 @@ export class Client extends Session {
     client[kState].remotePort = port
     client[kState].remoteAddress = addr.address
     client[kState].remoteFamily = 'IPv' + addr.family
-    client[kState].remoteAddr = new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
+    client[kState].remoteAddr =
+      new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
+    client[kState].maxPacketSize = this[kState].maxPacketSize
     return client
   }
 
@@ -111,6 +130,8 @@ export class Client extends Session {
     this[kState].remoteAddress = addr.address
     this[kState].remoteFamily = 'IPv' + addr.family
     this[kState].remoteAddr = new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
+    this[kState].maxPacketSize =
+      this[kState].localFamily === FamilyType.IPv6 ? MaxPacketSizeIPv6 : MaxPacketSizeIPv4
 
     const socket = this[kSocket] = createSocket(addr.family)
     socket[kState].conns.set(this.id, this)
@@ -128,6 +149,7 @@ export class Client extends Session {
         this[kState].localAddress = localAddr.address
         this[kState].localPort = localAddr.port
         this[kState].localAddr = new SocketAddress(localAddr)
+
         resolve()
         this.emit('connect')
       })
@@ -159,7 +181,7 @@ function socketOnMessage (this: Socket, msg: Buffer, rinfo: AddressInfo) {
   const senderAddr = new SocketAddress(rinfo)
   const rcvTime = Date.now()
 
-  const bufv = Visitor.wrap(msg)
+  const bufv = new BufferVisitor(msg)
   let packet = null
   try {
     packet = parsePacket(bufv, SessionType.SERVER)

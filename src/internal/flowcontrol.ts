@@ -38,16 +38,19 @@ export  class FlowController {
     return (this.maxReceiveOffset - this.consumedOffset) < (this.maxReceiveWindowSize / 2)
   }
 
-  updateWindowOffset (): number {
-    // this._autoTuning() TODO
+  updateWindowOffset (rtt: number): number {
+    const time = Date.now()
+    this._autoTuning(rtt, time)
+    this.lastWindowUpdateAt = time
     this.maxReceiveOffset = this.consumedOffset + this.maxReceiveWindowSize
-    this.lastWindowUpdateAt = Date.now()
     return this.maxReceiveOffset
   }
 
-  _autoTuning (rtt: number) {
-    if (this.lastWindowUpdateAt > 0 && (Date.now() - this.lastWindowUpdateAt < rtt * 2)) {
-      this.maxReceiveWindowSize = Math.min(this.maxReceiveWindowSize * 2, this.maxReceiveWindowSizeLimit)
+  _autoTuning (rtt: number, now: number) {
+    if (this.lastWindowUpdateAt > 0 && this.maxReceiveWindowSize < this.maxReceiveWindowSizeLimit &&
+      (now - this.lastWindowUpdateAt <= rtt * 2)) {
+      this.maxReceiveWindowSize =
+        Math.min(this.maxReceiveWindowSize * 2, this.maxReceiveWindowSizeLimit)
     }
   }
 }

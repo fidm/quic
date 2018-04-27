@@ -8,9 +8,11 @@ import { createHash, Hash, randomBytes } from 'crypto'
 import { suite, it } from 'tman'
 import { ok, strictEqual } from 'assert'
 
-import { Visitor, BufferVisitor, Float16MaxValue, readUFloat16, writeUFloat16 } from '../src/internal/common'
+import { Visitor, BufferVisitor, Float16MaxValue,
+  readUFloat16, writeUFloat16, readUnsafeUIntLE, writeUnsafeUIntLE,
+} from '../src/internal/common'
 
-export function bufferFromBytes (array: any): BufferVisitor {
+export function bufferFromBytes (array: any) {
   const bytes = []
   if (!Array.isArray(array)) {
     array = [array]
@@ -24,7 +26,7 @@ export function bufferFromBytes (array: any): BufferVisitor {
       }
     }
   }
-  return Visitor.wrap(Buffer.from(bytes))
+  return Buffer.from(bytes)
 }
 
 export class RandDataStream extends Readable {
@@ -33,6 +35,9 @@ export class RandDataStream extends Readable {
   sum: string
   sha256: Hash
   constructor (totalSize: number) {
+    if (!Number.isSafeInteger(totalSize) || totalSize <= 0) {
+      throw new Error(`invalid bytes size: ${totalSize}`)
+    }
     super()
     this.readBytes = 0
     this.totalSize = totalSize
@@ -92,6 +97,19 @@ suite('common', function () {
     v.reset(0, 0)
     strictEqual(v.start, 0)
     strictEqual(v.end, 0)
+  })
+
+  it('BufferVisitor', function () {
+    const bufv = new BufferVisitor(Buffer.allocUnsafe(10))
+    bufv.walk(1)
+    bufv.walk(4)
+    writeUnsafeUIntLE(bufv.buf, 0, bufv.start, bufv.end - bufv.start)
+    bufv.walk(4)
+    writeUnsafeUIntLE(bufv.buf, 0, bufv.start, bufv.end - bufv.start)
+    bufv.reset()
+    bufv.walk(1)
+    bufv.walk(8)
+    strictEqual(readUnsafeUIntLE(bufv.buf, bufv.start, bufv.end - bufv.start), 0)
   })
 
   suite('UFloat16', function () {
@@ -222,6 +240,61 @@ suite('common', function () {
       for (const data of testCases) {
         strictEqual(readUFloat16(uint16Buf(data[1])), data[0])
       }
+    })
+  })
+
+  suite('UnsafeUIntLE', function () {
+    it('should work', function () {
+      let buf = bufferFromBytes([0x1])
+      let val = readUnsafeUIntLE(buf, 0, 1)
+      strictEqual(val, 1)
+      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(1), val, 0, 1)))
+
+      buf = bufferFromBytes([0x1, 0x0])
+      val = readUnsafeUIntLE(buf, 0, 2)
+      strictEqual(val, 1)
+      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(2), val, 0, 2)))
+
+      buf = bufferFromBytes([0x1, 0x0, 0x0])
+      val = readUnsafeUIntLE(buf, 0, 3)
+      strictEqual(val, 1)
+      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(3), val, 0, 3)))
+
+      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0])
+      val = readUnsafeUIntLE(buf, 0, 6)
+      strictEqual(val, 1)
+      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(6), val, 0, 6)))
+
+      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
+      val = readUnsafeUIntLE(buf, 0, 7)
+      strictEqual(val, 1)
+      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(7), val, 0, 7)))
+
+      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
+      val = readUnsafeUIntLE(buf, 0, 8)
+      strictEqual(val, 1)
+      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(8), val, 0, 8)))
+
+      buf = bufferFromBytes([0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0])
+      strictEqual(readUnsafeUIntLE(buf, 1, 6), 1)
+
+      buf = bufferFromBytes([0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
+      strictEqual(readUnsafeUIntLE(buf, 1, 7), 1)
+
+      buf = bufferFromBytes([0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
+      strictEqual(readUnsafeUIntLE(buf, 1, 8), 1)
+    })
+
+    it('should work for Number.MAX_SAFE_INTEGER', function () {
+      const val = Number.MAX_SAFE_INTEGER
+      let buf = writeUnsafeUIntLE(Buffer.allocUnsafe(7), val, 0, 7)
+      strictEqual(readUnsafeUIntLE(buf, 0, 7), val)
+
+      buf = writeUnsafeUIntLE(Buffer.allocUnsafe(8), val, 0, 8)
+      strictEqual(readUnsafeUIntLE(buf, 0, 8), val)
+
+      buf = writeUnsafeUIntLE(Buffer.allocUnsafe(8), val, 1, 7)
+      strictEqual(readUnsafeUIntLE(buf, 1, 7), val)
     })
   })
 })

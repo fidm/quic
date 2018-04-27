@@ -7,7 +7,7 @@
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws } from 'assert'
 
-import { Visitor, toBuffer } from '../../src/internal/common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
 import { QuicError } from '../../src/internal/error'
 import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
 import {
@@ -26,7 +26,7 @@ suite('PADDING Frame', function () {
     strictEqual(paddingFrame.type, 0)
     const buf = toBuffer(paddingFrame)
     ok(buf.equals(bufferFromBytes([0x00])))
-    ok(buf.equals(toBuffer(PaddingFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(PaddingFrame.fromBuffer(new BufferVisitor(buf)))))
   })
 
   it('parse with parseFrame', function () {
@@ -35,6 +35,6 @@ suite('PADDING Frame', function () {
     strictEqual(paddingFrame.type, 0)
     const buf = toBuffer(paddingFrame)
     ok(buf.equals(bufferFromBytes([0x00])))
-    ok(buf.equals(toBuffer(parseFrame(buf, new PacketNumber(1)))))
+    ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))
   })
 })

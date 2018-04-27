@@ -7,7 +7,7 @@
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws } from 'assert'
 
-import { Visitor, toBuffer } from '../../src/internal/common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
 import { QuicError } from '../../src/internal/error'
 import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
 import {
@@ -30,7 +30,7 @@ suite('BLOCKED Frame', function () {
       0x05,
       0x0a, 0x00, 0x00, 0x00,
     ])))
-    ok(buf.equals(toBuffer(BlockedFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(BlockedFrame.fromBuffer(new BufferVisitor(buf)))))
   })
 
   it('parse with parseFrame', function () {
@@ -43,6 +43,6 @@ suite('BLOCKED Frame', function () {
       0x05,
       0x0a, 0x00, 0x00, 0x00,
     ])))
-    ok(buf.equals(toBuffer(parseFrame(buf, new PacketNumber(1)))))
+    ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))
   })
 })

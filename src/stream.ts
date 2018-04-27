@@ -5,9 +5,8 @@
 
 import { debuglog } from 'util'
 import { Duplex } from 'stream'
-import { StreamError, QuicError } from './internal/error'
+import { StreamError } from './internal/error'
 import {
-  MaxStreamDataSize,
   MaxStreamReadCacheSize,
   ReceiveStreamWindow,
   DefaultMaxReceiveStreamWindowClient,
@@ -19,11 +18,13 @@ import {
 } from './internal/protocol'
 import { StreamFrame, RstStreamFrame, BlockedFrame } from './internal/frame'
 import { StreamFlowController } from './internal/flowcontrol'
+import { BufferVisitor } from './internal/common'
 import {
   kID,
   kFC,
   kSession,
   kState,
+  kRTT,
 } from './internal/symbol'
 
 import { Session } from './session'
@@ -113,13 +114,8 @@ export class Stream extends Duplex {
     if (chunk.length === 0) {
       return callback(null)
     }
-    const bufs = []
-    while (chunk.length > MaxStreamDataSize) {
-      bufs.push(chunk.slice(0, MaxStreamDataSize))
-      chunk = chunk.slice(MaxStreamDataSize)
-    }
-    bufs.push(chunk)
-    this[kState].outgoingChunksList.push(bufs, callback)
+
+    this[kState].outgoingChunksList.push(chunk, callback)
     this._tryFlushCallbacks()
   }
 
@@ -144,19 +140,12 @@ export class Stream extends Duplex {
       return callback(null)
     }
 
-    let buf = Buffer.concat(list, len)
-    const bufs = []
-    while (buf.length > MaxStreamDataSize) {
-      bufs.push(buf.slice(0, MaxStreamDataSize))
-      buf = buf.slice(MaxStreamDataSize)
-    }
-    bufs.push(buf)
-    this[kState].outgoingChunksList.push(bufs, callback)
+    this[kState].outgoingChunksList.push(Buffer.concat(list, len), callback)
     this._tryFlushCallbacks()
   }
 
   _final (callback: (...args: any[]) => void): void {
-    this[kState].outgoingChunksList.push([], callback)
+    this[kState].outgoingChunksList.push(null, callback)
     this._tryFlushCallbacks()
   }
 
@@ -170,6 +159,12 @@ export class Stream extends Duplex {
       }
       break
     }
+
+    this[kFC].updateConsumedOffset(this[kState].incomingSequencer.consumedOffset)
+    if (!this[kState].remoteFIN) {
+      process.nextTick(() => this._trySendUpdateWindow())
+    }
+
     if (!this[kState].ended && this[kState].incomingSequencer.isFIN()) {
       this[kState].ended = true
       this.push(null)
@@ -202,7 +197,7 @@ export class Stream extends Duplex {
 
   _trySendUpdateWindow () {
     if (this[kFC].shouldUpdateWindow()) {
-      const offset = this[kFC].updateWindowOffset()
+      const offset = this[kFC].updateWindowOffset(this[kSession][kRTT].msRTT)
       this[kSession]._sendWindowUpdate(new Offset(offset), this[kID])
     }
   }
@@ -230,19 +225,13 @@ export class Stream extends Duplex {
       if (this[kState].incomingSequencer.hasOffset(offset)) {
         return // duplicated frame
       }
-
       this[kState].incomingSequencer.push(frame)
-      if (!frame.isFIN) {
-        this._trySendUpdateWindow()
-      }
     }
 
-    this._read(MaxStreamDataSize * 10) // try to read all
-    this[kFC].updateConsumedOffset(this[kState].incomingSequencer.consumedOffset)
+    this._read()
     if (this[kState].incomingSequencer.byteLen > MaxStreamReadCacheSize) {
       this.emit('error', new Error('Too large caching, stream data maybe lost'))
       this.destroy(StreamError.fromError(StreamError.QUIC_ERROR_PROCESSING_STREAM))
-      return
     }
   }
 
@@ -266,7 +255,7 @@ export class Stream extends Duplex {
       return
     }
 
-    if (entry.data.length > 0 && !this._isRemoteWriteable(entry.data[0].length)) {
+    if (entry.data != null && !this._isRemoteWriteable(this[kSession][kState].maxPacketSize)) {
       return
     }
 
@@ -274,7 +263,7 @@ export class Stream extends Duplex {
     this[kState].flushing = true
     this._flushData(entry.data, (err) => {
       this[kState].flushing = false
-      if (entry.data.length === 0) {
+      if (entry.checkConsumed()) {
         this[kState].outgoingChunksList.shift()
         callback(err)
       }
@@ -296,26 +285,38 @@ export class Stream extends Duplex {
     return true
   }
 
-  private _flushData (fixedChunks: Buffer[], callback: (err: any) => void): void {
-    const buf = fixedChunks.shift()
+  private _flushData (bufv: BufferVisitor | null, callback: (err: any) => void): void {
+    let byteLen = 0 // bytes to write
+    let nextByteLen = 0 // bytes for next write
     const offet = new Offset(this[kFC].writtenOffset)
-    const byteLen = buf == null ? 0 : buf.length
-    if (byteLen > 0) {
+    const streamFrame = new StreamFrame(this[kID], offet, bufv == null)
+    const packet = this[kSession]._newRegularPacket()
+
+    if (bufv != null) {
+      byteLen = Math.min(bufv.length - bufv.end,
+          this[kSession][kState].maxPacketSize - packet.headerLen() - streamFrame.headerLen(true))
+
+      bufv.walk(byteLen)
+      nextByteLen = Math.min(byteLen, bufv.length - bufv.end)
+      streamFrame.setData(bufv.buf.slice(bufv.start, bufv.end))
       this[kFC].updateWrittenOffset(byteLen)
     }
-    const streamFrame = new StreamFrame(this[kID], offet, buf, buf == null)
+
     if (streamFrame.isFIN) {
       this[kState].localFIN = true
     }
 
     debug(`stream %s - write streamFrame, isFIN: %s, offset: %d, data size: %d`,
       this.id, streamFrame.isFIN, streamFrame.offset.valueOf(), byteLen)
-    this[kSession]._sendFrame(streamFrame, (err) => {
-      if (err != null || fixedChunks.length === 0 || !this._isRemoteWriteable(fixedChunks[0].length)) {
+    packet.addFrames(streamFrame)
+    packet.isRetransmittable = true
+    this[kSession]._sendPacket(packet, (err) => {
+      // Packet Number length maybe increase 1 byte
+      if (err != null || nextByteLen === 0 || !this._isRemoteWriteable(nextByteLen + 1)) {
         return callback(err)
       }
 
-      this._flushData(fixedChunks, callback)
+      this._flushData(bufv, callback)
     })
   }
 }
@@ -330,7 +331,7 @@ class StreamState {
   finished: boolean
   lastActivityTime: number
   incomingSequencer: StreamSequencer
-  outgoingChunksList: StreamChunksList
+  outgoingChunksList: StreamDataList
   constructor () {
     this.localFIN = false // local endpoint will not send data
     this.remoteFIN = false // remote endpoint should not send data
@@ -341,32 +342,32 @@ class StreamState {
     this.finished = false
     this.lastActivityTime = Date.now()
     this.incomingSequencer = new StreamSequencer()
-    this.outgoingChunksList = new StreamChunksList()
+    this.outgoingChunksList = new StreamDataList()
   }
 }
 
-class StreamChunksEntry {
-  data: Buffer[]
+class StreamDataEntry {
   callback: (...args: any[]) => void
-  next: StreamChunksEntry | null
-  byteLen: number
-  constructor (bufs: Buffer[], callback: (...args: any[]) => void, entry: StreamChunksEntry | null) {
-    this.data = bufs
+  next: StreamDataEntry | null
+  data: BufferVisitor | null
+  constructor (callback: (...args: any[]) => void, buf: Buffer | null) {
     this.callback = callback
-    this.next = entry
-    this.byteLen = 0
-    for (const chunk of bufs) {
-      if (chunk.length > MaxStreamDataSize) {
-        throw new QuicError(`chunk size too large: ${chunk.length}`)
-      }
-      this.byteLen += chunk.length
-    }
+    this.next = null
+    this.data = buf == null ? null : new BufferVisitor(buf)
+  }
+
+  get byteLen (): number {
+    return this.data == null ? 0 : this.data.length
+  }
+
+  checkConsumed (): boolean {
+    return this.data == null || this.data.end === this.data.length
   }
 }
 
-class StreamChunksList {
-  head: StreamChunksEntry | null
-  tail: StreamChunksEntry | null
+class StreamDataList {
+  head: StreamDataEntry | null
+  tail: StreamDataEntry | null
   pendingCb: number
   byteLen: number
   constructor () {
@@ -383,8 +384,8 @@ class StreamChunksList {
     this.byteLen = 0
   }
 
-  push (bufs: Buffer[], callback: (...args: any[]) => void) {
-    const entry = new StreamChunksEntry(bufs, callback, null)
+  push (buf: Buffer | null, callback: (...args: any[]) => void) {
+    const entry = new StreamDataEntry(callback, buf)
 
     if (this.tail != null) {
       this.tail.next = entry
@@ -396,11 +397,11 @@ class StreamChunksList {
     this.byteLen += entry.byteLen
   }
 
-  first (): StreamChunksEntry | null {
+  first (): StreamDataEntry | null {
     return this.head
   }
 
-  shift (): StreamChunksEntry | null {
+  shift (): StreamDataEntry | null {
     if (this.head == null) {
       return null
     }

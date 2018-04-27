@@ -6,8 +6,8 @@
 import { debuglog } from 'util'
 import { EventEmitter } from 'events'
 
-import { MaxReceivePacketSize } from './internal/constant'
-import { lookup, Visitor } from './internal/common'
+import { MaxReceivePacketSize, MaxPacketSizeIPv4, MaxPacketSizeIPv6 } from './internal/constant'
+import { lookup, BufferVisitor } from './internal/common'
 import { QuicError } from './internal/error'
 import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import {
@@ -20,6 +20,7 @@ import {
   kIntervalCheck,
 } from './internal/symbol'
 import {
+  FamilyType,
   SocketAddress,
   SessionType,
   ConnectionID,
@@ -41,6 +42,8 @@ export class ServerSession extends Session {
     this[kState].localAddress = server.localAddress
     this[kState].localFamily = server.localFamily
     this[kState].localAddr = new SocketAddress(server.address())
+    this[kState].maxPacketSize =
+      server.localFamily === FamilyType.IPv6 ? MaxPacketSizeIPv6 : MaxPacketSizeIPv4
   }
 
   get server () {
@@ -163,22 +166,29 @@ export class Server extends EventEmitter {
     const socket = this[kSocket]
     if (socket != null && !socket[kState].destroyed) {
       socket.close()
-      socket.removeAllListeners()
       socket[kState].destroyed = true
     }
     process.nextTick(() => this.emit('close'))
   }
 
   getConnections () {
-    return Promise.resolve(this[kConns].size)
+    return Promise.resolve(this[kConns].size) // TODO
   }
 
   ref () {
-    return
+    const socket = this[kSocket]
+    if (socket == null) {
+      throw new Error('Server not listen')
+    }
+    socket.ref()
   }
 
   unref () {
-    return
+    const socket = this[kSocket]
+    if (socket == null) {
+      throw new Error('Server not listen')
+    }
+    socket.unref()
   }
 }
 
@@ -186,15 +196,19 @@ function serverOnClose (server: Server) {
   for (const session of server[kConns].values()) {
     session.destroy(new Error('the underlying socket closed'))
   }
-  server[kConns].clear()
+  // server[kConns].clear()
   if (!server[kState].destroyed) {
+    const timer = server[kIntervalCheck]
+    if (timer != null) {
+      clearInterval(timer)
+    }
     server[kState].destroyed = true
     server.emit('close')
   }
 }
 
 function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: AddressInfo) {
-  if (msg.length === 0) {
+  if (msg.length === 0 || server[kState].destroyed) {
     return
   }
   // The packet size should not exceed protocol.MaxReceivePacketSize bytes
@@ -207,7 +221,7 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
   const senderAddr = new SocketAddress(rinfo)
   const rcvTime = Date.now()
 
-  const bufv = Visitor.wrap(msg)
+  const bufv = new BufferVisitor(msg)
   let packet = null
   try {
     packet = parsePacket(bufv, SessionType.CLIENT)

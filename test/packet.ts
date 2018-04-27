@@ -6,7 +6,7 @@
 import { suite, it } from 'tman'
 import { ok, equal, deepEqual } from 'assert'
 
-import { toBuffer } from '../src/internal/common'
+import { toBuffer, BufferVisitor } from '../src/internal/common'
 import {
   getVersion, getVersions, isSupportedVersion,
   PacketNumber, ConnectionID, SocketAddress, SessionType, QuicTag,
@@ -43,7 +43,7 @@ suite('QUIC Packet', function () {
 
       const resetPacket = new ResetPacket(connectionID, quicTag)
       const buf = toBuffer(resetPacket)
-      const res = ResetPacket.fromBuffer(buf)
+      const res = ResetPacket.fromBuffer(new BufferVisitor(buf))
       ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
@@ -72,7 +72,7 @@ suite('QUIC Packet', function () {
 
       const resetPacket = new ResetPacket(connectionID, quicTag)
       const buf = toBuffer(resetPacket)
-      const res = parsePacket(buf, SessionType.SERVER) as ResetPacket
+      const res = parsePacket(new BufferVisitor(buf), SessionType.SERVER) as ResetPacket
       ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
@@ -90,7 +90,7 @@ suite('QUIC Packet', function () {
       ok(isSupportedVersion(negotiationPacket.versions[0]))
 
       const buf = toBuffer(negotiationPacket)
-      const res = NegotiationPacket.fromBuffer(buf)
+      const res = NegotiationPacket.fromBuffer(new BufferVisitor(buf))
       ok(res instanceof NegotiationPacket)
       ok(negotiationPacket.flag === res.flag)
       ok(negotiationPacket.connectionID.equals(res.connectionID))
@@ -104,7 +104,7 @@ suite('QUIC Packet', function () {
       ok(isSupportedVersion(negotiationPacket.versions[0]))
 
       const buf = toBuffer(negotiationPacket)
-      const res = parsePacket(buf, SessionType.SERVER) as NegotiationPacket
+      const res = parsePacket(new BufferVisitor(buf), SessionType.SERVER) as NegotiationPacket
       ok(res instanceof NegotiationPacket)
       ok(negotiationPacket.flag === res.flag)
       ok(negotiationPacket.connectionID.equals(res.connectionID))
@@ -130,7 +130,7 @@ suite('QUIC Packet', function () {
       regularPacket.setVersion(getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
       const buf = toBuffer(regularPacket)
-      const res = RegularPacket.fromBuffer(buf, regularPacket.flag)
+      const res = RegularPacket.fromBuffer(new BufferVisitor(buf), regularPacket.flag)
       ok(res instanceof RegularPacket)
       ok(regularPacket.flag === res.flag)
       ok(regularPacket.connectionID.equals(res.connectionID))
@@ -158,7 +158,7 @@ suite('QUIC Packet', function () {
       regularPacket.setVersion(getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
       const buf = toBuffer(regularPacket)
-      const res = parsePacket(buf, SessionType.CLIENT) as RegularPacket
+      const res = parsePacket(new BufferVisitor(buf), SessionType.CLIENT) as RegularPacket
       ok(res instanceof RegularPacket)
       ok(regularPacket.flag === res.flag)
       ok(regularPacket.connectionID.equals(res.connectionID))

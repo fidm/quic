@@ -5,6 +5,7 @@
 
 // node example/echo.js
 // NODE_DEBUG=quic,quic:session,quic:stream node example/echo.js
+
 require('ts-node/register')
 const ilog = require('ilog')
 const thunk = require('thunks').thunk
@@ -42,7 +43,9 @@ server
   })
 
 server.listen(2345)
-  .then(() => ilog.info(Object.assign({ class: 'server listen' }, server.address())))
+  .then(() => {
+    ilog.info(Object.assign({ class: 'server listen' }, server.address()))
+  })
   .catch(ilog.error)
 
 // ---------- Client ----------
@@ -70,12 +73,12 @@ thunk(function * () {
   yield (done) => stream.write('hello, QUIC', done)
 
   let i = 0
-  while (i < 999) {
+  while (i <= 99) {
     yield thunk.delay(100)
     yield (done) => stream.write(`${i++}`, done)
   }
+  stream.end()
 
-  yield (done) => stream.end(done)
   yield (done) => cli.once('close', done)
-  process.exit(0)
+  yield server.close()
 })(ilog.error)

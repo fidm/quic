@@ -7,7 +7,7 @@
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws } from 'assert'
 
-import { Visitor, toBuffer } from '../../src/internal/common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
 import { QuicError } from '../../src/internal/error'
 import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
 import {
@@ -23,7 +23,7 @@ suite('ACK Frame', function () {
   suite('parsing', function () {
     it('a sample ACK frame', function () {
       const buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0x1c)
       ok(ackFrame.lowestAcked === 0x1)
       ok(ackFrame.delayTime === 142)
@@ -35,7 +35,7 @@ suite('ACK Frame', function () {
 
     it('parse with parseFrame', function () {
       const buf = bufferFromBytes([0b01000000, 0x1c, 0x8e, 0x0, 0x1c, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
-      const ackFrame = parseFrame(buf, new PacketNumber(1)) as AckFrame
+      const ackFrame = parseFrame(new BufferVisitor(buf), new PacketNumber(1)) as AckFrame
       ok(ackFrame.largestAcked === 0x1c)
       ok(ackFrame.lowestAcked === 0x1)
       ok(ackFrame.delayTime === 142)
@@ -47,7 +47,7 @@ suite('ACK Frame', function () {
 
     it('a frame without a timestamp', function () {
       const buf = bufferFromBytes([0x40, 0x3, 0x50, 0x15, 0x3, 0x0])
-      const ackFrame = AckFrame.fromBuffer(buf) as AckFrame
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf)) as AckFrame
       ok(ackFrame.largestAcked === 0x3)
       ok(ackFrame.lowestAcked === 0x1)
       ok(ackFrame.delayTime === 6816)
@@ -56,7 +56,7 @@ suite('ACK Frame', function () {
 
     it.skip('a frame where the largest acked is 0', function () {
       const buf = bufferFromBytes([0x40, 0x1, 0xff, 0xff, 0x0, 0x0])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0x0)
       ok(ackFrame.lowestAcked === 0x0)
       ok(ackFrame.hasMissingRanges() === false)
@@ -64,7 +64,7 @@ suite('ACK Frame', function () {
 
     it('a frame with a 48 bit packet number', function () {
       const buf = bufferFromBytes([0x4c, 0x37, 0x13, 0xad, 0xfb, 0xca, 0xde, 0x0, 0x0, 0x5, 0x1, 0, 0, 0, 0, 0])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0xdecafbad1337)
       ok(ackFrame.lowestAcked === 0xdecafbad1337 - 5 + 1)
       ok(ackFrame.hasMissingRanges() === false)
@@ -72,7 +72,7 @@ suite('ACK Frame', function () {
 
     it('a frame with 1 ACKed packet', function () {
       const buf = bufferFromBytes([0x40, 0x10, 0x8e, 0x0, 0x1, 0x0])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0x10)
       ok(ackFrame.lowestAcked === 0x10)
       ok(ackFrame.hasMissingRanges() === false)
@@ -81,7 +81,7 @@ suite('ACK Frame', function () {
     it('a frame, when packet 1 was lost', function () {
       const buf = bufferFromBytes([0x40, 0x9, 0x92, 0x7, 0x8, 0x3, 0x2, 0x69, 0xa3, 0x0, 0x0, 0x1,
         0xc9, 0x2, 0x0, 0x46, 0x10])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 9)
       ok(ackFrame.lowestAcked === 2)
       ok(ackFrame.hasMissingRanges() === false)
@@ -90,7 +90,7 @@ suite('ACK Frame', function () {
     it('a frame with multiple timestamps', function () {
       const buf = bufferFromBytes([0x40, 0x10, 0x0, 0x0, 0x10, 0x4, 0x1, 0x6b, 0x26, 0x4, 0x0, 0x3,
         0, 0, 0x2, 0, 0, 0x1, 0, 0])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0x10)
       ok(ackFrame.lowestAcked === 1)
       ok(ackFrame.hasMissingRanges() === false)
@@ -101,14 +101,14 @@ suite('ACK Frame', function () {
       // Length: 0x1d => LowestAcked would be -1
       throws(() => {
         const buf = bufferFromBytes([0x40, 0x1c, 0x8e, 0x0, 0x1d, 0x1, 0x1, 0x6b, 0x26, 0x3, 0x0])
-        AckFrame.fromBuffer(buf)
+        AckFrame.fromBuffer(new BufferVisitor(buf))
       })
     })
 
     it('errors when the first ACK range is empty', function () {
       throws(() => {
         const buf = bufferFromBytes([0x40, 0x9, 0x8e, 0x0, 0x0, 0x1, 0])
-        AckFrame.fromBuffer(buf)
+        AckFrame.fromBuffer(new BufferVisitor(buf))
       })
     })
   })
@@ -117,7 +117,7 @@ suite('ACK Frame', function () {
     it('a frame with one ACK block', function () {
       const buf = bufferFromBytes([0x60, 0x18, 0x94, 0x1, 0x1, 0x3, 0x2, 0x10, 0x2, 0x1, 0x5c, 0xd5,
         0x0, 0x0, 0x0, 0x95, 0x0])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0x18)
       ok(ackFrame.lowestAcked === 0x4)
       strictEqual(ackFrame.hasMissingRanges(), true)
@@ -128,20 +128,20 @@ suite('ACK Frame', function () {
 
     it('rejects a frame that says it has ACK blocks in the typeByte, but doesn\'t have any', function () {
       const buf = bufferFromBytes([0x63, 0x4, 0xff, 0xff, 0, 2, 0, 0, 0, 0, 0, 0])
-      throws(() => AckFrame.fromBuffer(buf))
+      throws(() => AckFrame.fromBuffer(new BufferVisitor(buf)))
     })
 
     it('rejects a frame with invalid ACK ranges', function () {
       // like the test before, but increased the last ACK range, such that the FirstPacketNumber would be negative
       const buf = bufferFromBytes([0x60, 0x18, 0x94, 0x1, 0x1, 0x3, 0x2, 0x15, 0x2, 0x1, 0x5c, 0xd5, 0x0,
         0x0, 0x0, 0x95, 0x0])
-      throws(() => AckFrame.fromBuffer(buf))
+      throws(() => AckFrame.fromBuffer(new BufferVisitor(buf)))
     })
 
     it('a frame with multiple single packets missing', function () {
       const buf = bufferFromBytes([0x60, 0x27, 0xda, 0x0, 0x6, 0x9, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1, 0x1,
         0x1, 0x1, 0x1, 0x1, 0x13, 0x2, 0x1, 0x71, 0x12, 0x3, 0x0, 0x0, 0x47, 0x2])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0x27)
       ok(ackFrame.lowestAcked === 0x1)
       strictEqual(ackFrame.hasMissingRanges(), true)
@@ -158,7 +158,7 @@ suite('ACK Frame', function () {
     it('a frame with packet 1 and one more packet lost', function () {
       const buf = bufferFromBytes([0x60, 0xc, 0x92, 0x0, 0x1, 0x1, 0x1, 0x9, 0x2, 0x2, 0x53, 0x43,
         0x1, 0x0, 0x0, 0xa7, 0x0])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 12)
       ok(ackFrame.lowestAcked === 2)
       strictEqual(ackFrame.hasMissingRanges(), true)
@@ -170,7 +170,7 @@ suite('ACK Frame', function () {
     it('a frame with multiple longer ACK blocks', function () {
       const buf = bufferFromBytes([0x60, 0x52, 0xd1, 0x0, 0x3, 0x17, 0xa, 0x10, 0x4, 0x8, 0x2, 0x12,
         0x2, 0x1, 0x6c, 0xc8, 0x2, 0x0, 0x0, 0x7e, 0x1])
-      const ackFrame = AckFrame.fromBuffer(buf)
+      const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
       ok(ackFrame.largestAcked === 0x52)
       ok(ackFrame.lowestAcked === 2)
       strictEqual(ackFrame.hasMissingRanges(), true)
@@ -185,7 +185,7 @@ suite('ACK Frame', function () {
       // 255 missing packets fit into a single ACK block
       it('a frame with a range of 255 missing packets', function () {
         const buf = bufferFromBytes([0x64, 0x15, 0x1, 0xce, 0x1, 0x1, 0x3, 0xff, 0x13, 0x1, 0x0, 0xb6, 0xc5, 0x0, 0x0])
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0x115)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -198,7 +198,7 @@ suite('ACK Frame', function () {
       it('a frame with a range of 256 missing packets', function () {
         const buf = bufferFromBytes([0x64, 0x14, 0x1, 0x96, 0x0, 0x2, 0x1, 0xff, 0x0, 0x1, 0x13,
           0x1, 0x0, 0x92, 0xc0, 0x0, 0x0])
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0x114)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -213,7 +213,7 @@ suite('ACK Frame', function () {
         // the last range is incomplete, and should be completely ignored
         const buf = bufferFromBytes([0x64, 0x9b, 0x3, 0xc9, 0x0, 0x5 /* instead of 0x6 */, 0x1, 0xff,
           0x0, 0x2d, 0x1, 0xff, 0x0, 0x2d, 0x1, 0xff, 0x0 /* 0x2d, 0x14, */, 0x1, 0x0, 0xf6, 0xbd, 0x0, 0x0])
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0x39b)
         ok(ackFrame.lowestAcked === 0x141)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -226,7 +226,7 @@ suite('ACK Frame', function () {
       it('a frame with one long range, spanning 2 blocks, of missing packets', function () { // 280 missing packets
         const buf = bufferFromBytes([0x64, 0x44, 0x1, 0xa7, 0x0, 0x2, 0x19, 0xff, 0x0, 0x19, 0x13, 0x2, 0x1,
           0xb, 0x59, 0x2, 0x0, 0x0, 0xb6, 0x0])
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0x144)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -240,7 +240,7 @@ suite('ACK Frame', function () {
         const buf = bufferFromBytes([0x64, 0x5b, 0x9, 0x66, 0x1, 0xa, 0x1f, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0,
           0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, 0x0, 0x32, 0x13, 0x4, 0x3, 0xb4, 0xda,
           0x1, 0x0, 0x2, 0xe0, 0x0, 0x1, 0x9a, 0x0, 0x0, 0x81, 0x0])
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0x95b)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -253,7 +253,7 @@ suite('ACK Frame', function () {
         const buf = bufferFromBytes([0x65, 0x66, 0x9, 0x23, 0x1, 0x7, 0x7, 0x0, 0xff, 0x0, 0x0, 0xf5, 0x8a, 0x2,
           0xc8, 0xe6, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0x23, 0x13, 0x0, 0x2, 0x1, 0x13, 0xae,
           0xb, 0x0, 0x0, 0x80, 0x5])
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0x966)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -267,7 +267,7 @@ suite('ACK Frame', function () {
       it('a frame with short ranges and one long range', function () {
         const buf = bufferFromBytes([0x64, 0x8f, 0x3, 0x65, 0x1, 0x5, 0x3d, 0x1, 0x32, 0xff, 0x0, 0xff, 0x0,
           0xf0, 0x1c, 0x2, 0x13, 0x3, 0x2, 0x23, 0xaf, 0x2, 0x0, 0x1, 0x3, 0x1, 0x0, 0x8e, 0x0])
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0x38f)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -284,9 +284,9 @@ suite('ACK Frame', function () {
     const buf = bufferFromBytes([0x65, 0x66, 0x9, 0x23, 0x1, 0x7, 0x7, 0x0, 0xff, 0x0, 0x0, 0xf5, 0x8a,
       0x2, 0xc8, 0xe6, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0xff, 0x0, 0x0, 0x23, 0x13, 0x0, 0x2, 0x1,
       0x13, 0xae, 0xb, 0x0, 0x0, 0x80, 0x5])
-    AckFrame.fromBuffer(buf)
+    AckFrame.fromBuffer(new BufferVisitor(buf))
     for (let i = 0; i < buf.length; i++) {
-      throws(() => AckFrame.fromBuffer(Visitor.wrap(buf.slice(0, i))))
+      throws(() => AckFrame.fromBuffer(new BufferVisitor(buf.slice(0, i))))
     }
   })
 
@@ -297,7 +297,7 @@ suite('ACK Frame', function () {
         frame.largestAcked = 1
         frame.lowestAcked = 1
         const buf = toBuffer(frame)
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 1)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), false)
@@ -308,7 +308,7 @@ suite('ACK Frame', function () {
         frame.largestAcked = 20
         frame.lowestAcked = 10
         const buf = toBuffer(frame)
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 20)
         ok(ackFrame.lowestAcked === 10)
         strictEqual(ackFrame.hasMissingRanges(), false)
@@ -319,7 +319,7 @@ suite('ACK Frame', function () {
         frame.largestAcked = 0xDEADBEEFCAFE
         frame.lowestAcked = 0xDEADBEEFCAFE
         const buf = toBuffer(frame)
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 0xDEADBEEFCAFE)
         ok(ackFrame.lowestAcked === 0xDEADBEEFCAFE)
         strictEqual(ackFrame.hasMissingRanges(), false)
@@ -331,7 +331,7 @@ suite('ACK Frame', function () {
         frame.lowestAcked = 1
         frame.ackRanges.push(new AckRange(25, 40), new AckRange(1, 23))
         const buf = toBuffer(frame)
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 40)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -351,7 +351,7 @@ suite('ACK Frame', function () {
           new AckRange(1, 10),
         )
         const buf = toBuffer(frame)
-        const ackFrame = AckFrame.fromBuffer(buf)
+        const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
         ok(ackFrame.largestAcked === 25)
         ok(ackFrame.lowestAcked === 1)
         strictEqual(ackFrame.hasMissingRanges(), true)
@@ -396,7 +396,7 @@ suite('ACK Frame', function () {
           strictEqual(frame.numWritableNackRanges(), 2)
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 300)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -416,7 +416,7 @@ suite('ACK Frame', function () {
           strictEqual(frame.numWritableNackRanges(), 2)
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 300)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -436,7 +436,7 @@ suite('ACK Frame', function () {
           strictEqual(frame.numWritableNackRanges(), 3)
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 300)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -456,7 +456,7 @@ suite('ACK Frame', function () {
           strictEqual(frame.numWritableNackRanges(), 3)
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 600)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -476,7 +476,7 @@ suite('ACK Frame', function () {
           strictEqual(frame.numWritableNackRanges(), 4)
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 600)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -496,7 +496,7 @@ suite('ACK Frame', function () {
           strictEqual(frame.numWritableNackRanges(), 4)
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 600)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -515,7 +515,7 @@ suite('ACK Frame', function () {
           )
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 3000)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -535,7 +535,7 @@ suite('ACK Frame', function () {
           )
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 3600)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -554,7 +554,7 @@ suite('ACK Frame', function () {
 
           const buf = toBuffer(frame)
           strictEqual(buf[0] & 0x3, 0x0)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 200)
           ok(ackFrame.lowestAcked === 1)
         })
@@ -566,7 +566,7 @@ suite('ACK Frame', function () {
 
           const buf = toBuffer(frame)
           strictEqual(buf[0] & 0x3, 0x1)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 0x100)
           ok(ackFrame.lowestAcked === 1)
         })
@@ -578,7 +578,7 @@ suite('ACK Frame', function () {
 
           const buf = toBuffer(frame)
           strictEqual(buf[0] & 0x3, 0x2)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 0x10000)
           ok(ackFrame.lowestAcked === 1)
         })
@@ -590,7 +590,7 @@ suite('ACK Frame', function () {
 
           const buf = toBuffer(frame)
           strictEqual(buf[0] & 0x3, 0x3)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 0x100000000)
           ok(ackFrame.lowestAcked === 1)
         })
@@ -607,7 +607,7 @@ suite('ACK Frame', function () {
 
           const buf = toBuffer(frame)
           strictEqual(buf[0] & 0x3, 0x0)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 5001)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -628,7 +628,7 @@ suite('ACK Frame', function () {
 
           const buf = toBuffer(frame)
           strictEqual(buf[0] & 0x3, 0x1)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === 10000)
           ok(ackFrame.lowestAcked === 1)
           strictEqual(ackFrame.hasMissingRanges(), true)
@@ -650,7 +650,7 @@ suite('ACK Frame', function () {
           frame.ackRanges = ackRanges
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === frame.largestAcked)
           ok(ackFrame.lowestAcked === ackRanges[254].first)
           strictEqual(ackFrame.ackRanges.length, 0xff)
@@ -669,7 +669,7 @@ suite('ACK Frame', function () {
           frame.ackRanges = ackRanges
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === frame.largestAcked)
           ok(ackFrame.lowestAcked === ackRanges[ackFrame.ackRanges.length - 1].first)
           strictEqual(ackFrame.ackRanges.length, 256 / 4)
@@ -688,7 +688,7 @@ suite('ACK Frame', function () {
           frame.ackRanges = ackRanges
 
           const buf = toBuffer(frame)
-          const ackFrame = AckFrame.fromBuffer(buf)
+          const ackFrame = AckFrame.fromBuffer(new BufferVisitor(buf))
           ok(ackFrame.largestAcked === frame.largestAcked)
           ok(ackFrame.lowestAcked === ackRanges[ackFrame.ackRanges.length - 1].first)
           strictEqual(ackFrame.ackRanges.length, 2)

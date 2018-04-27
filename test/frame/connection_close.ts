@@ -7,7 +7,7 @@
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws } from 'assert'
 
-import { Visitor, toBuffer } from '../../src/internal/common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
 import { QuicError } from '../../src/internal/error'
 import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
 import {
@@ -31,7 +31,7 @@ suite('CONNECTION_CLOSE frame', function () {
       0x00, 0x00, 0x00, 0x00,
       0x00, 0x00,
     ])))
-    ok(buf.equals(toBuffer(ConnectionCloseFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(ConnectionCloseFrame.fromBuffer(new BufferVisitor(buf)))))
   })
 
   it('new ConnectionCloseFrame with QuicError(1)', function () {
@@ -46,7 +46,7 @@ suite('CONNECTION_CLOSE frame', function () {
       0x28, 0x00,
       'Connection has reached an invalid state.',
     ])))
-    ok(buf.equals(toBuffer(ConnectionCloseFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(ConnectionCloseFrame.fromBuffer(new BufferVisitor(buf)))))
   })
 
   it('parse with parseFrame', function () {
@@ -61,6 +61,6 @@ suite('CONNECTION_CLOSE frame', function () {
       0x28, 0x00,
       'Connection has reached an invalid state.',
     ])))
-    ok(buf.equals(toBuffer(parseFrame(buf, new PacketNumber(1)))))
+    ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))
   })
 })

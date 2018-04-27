@@ -7,7 +7,7 @@
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws } from 'assert'
 
-import { Visitor, toBuffer } from '../../src/internal/common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
 import { QuicError } from '../../src/internal/error'
 import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
 import {
@@ -22,7 +22,7 @@ import { bufferFromBytes } from '../common'
 suite('WINDOW_UPDATE Frame', function () {
   it('new WindowUpdateFrame with StreamID', function () {
     const streamID = new StreamID(10)
-    const offset = Offset.fromBuffer(bufferFromBytes([0xff, 0xff, 0xff, 0xff]), 4)
+    const offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0xff, 0xff, 0xff, 0xff])), 4)
     const windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
 
     strictEqual(windowUpdateFrame.type, 4)
@@ -32,12 +32,12 @@ suite('WINDOW_UPDATE Frame', function () {
       0x0a, 0x00, 0x00, 0x00,
       0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
     ])))
-    ok(buf.equals(toBuffer(WindowUpdateFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(WindowUpdateFrame.fromBuffer(new BufferVisitor(buf)))))
   })
 
   it('parse with parseFrame', function () {
     const streamID = new StreamID(10)
-    const offset = Offset.fromBuffer(bufferFromBytes([0xff, 0xff, 0xff, 0xff]), 4)
+    const offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0xff, 0xff, 0xff, 0xff])), 4)
     const windowUpdateFrame = new WindowUpdateFrame(streamID, offset)
 
     strictEqual(windowUpdateFrame.type, 4)
@@ -47,6 +47,6 @@ suite('WINDOW_UPDATE Frame', function () {
       0x0a, 0x00, 0x00, 0x00,
       0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00,
     ])))
-    ok(buf.equals(toBuffer(parseFrame(buf, new PacketNumber(1)))))
+    ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))
   })
 })

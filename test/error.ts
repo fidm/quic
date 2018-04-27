@@ -9,7 +9,7 @@ import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual } from 'assert'
 
 import { QuicError } from '../src/internal/error'
-import { Visitor, toBuffer } from '../src/internal/common'
+import { BufferVisitor, toBuffer } from '../src/internal/common'
 
 import { bufferFromBytes } from './common'
 
@@ -44,11 +44,11 @@ suite('QUIC errors', function () {
   })
 
   it('QuicError.fromBuffer', function () {
-    strictEqual(QuicError.fromBuffer(bufferFromBytes([0x0, 0x0, 0x0, 0x0])).name, 'QUIC_NO_ERROR')
-    let err = QuicError.fromBuffer(bufferFromBytes([0x1, 0x0, 0x0, 0x0]))
+    strictEqual(QuicError.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x0, 0x0]))).name, 'QUIC_NO_ERROR')
+    let err = QuicError.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x0, 0x0, 0x0])))
     deepEqual(err, new QuicError(1))
 
-    err = QuicError.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1]))
+    err = QuicError.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1])))
     strictEqual(err.code, 0xffffffff)
     strictEqual(err.name, 'INVALID_ERROR_CODE')
     strictEqual(err.message, String(0x01010101))

@@ -8,18 +8,7 @@ import { lookup as dnsLookup } from 'dns'
 
 export const lookup = promisify(dnsLookup)
 
-// BufferVisitor is a buffer wrapped by Visitor
-export interface BufferVisitor extends Buffer {
-  v: Visitor
-}
-
-/** Visitor representing a Buffer visitor. */
 export class Visitor {
-  static wrap (buf: Buffer): BufferVisitor {
-    Object.assign(buf, { v: new Visitor() })
-    return buf as BufferVisitor
-  }
-
   start: number
   end: number
   constructor (start: number = 0, end: number = 0) {
@@ -44,15 +33,30 @@ export class Visitor {
   }
 }
 
+export class BufferVisitor extends Visitor {
+  buf: Buffer
+  constructor (buf: Buffer, start: number = 0, end: number = 0) {
+    super(start, end)
+    this.buf = buf
+  }
+
+  get length () {
+    return this.buf.length
+  }
+
+  isOutside (): boolean {
+    return this.end > this.buf.length
+  }
+}
+
 export interface ToBuffer {
   byteLen (): number
   writeTo (bufv: BufferVisitor): BufferVisitor
 }
 
-export function toBuffer (obj: ToBuffer): BufferVisitor {
-  const bufv = obj.writeTo(Visitor.wrap(Buffer.alloc(obj.byteLen())))
-  bufv.v.reset(0, 0)
-  return bufv
+export function toBuffer (obj: ToBuffer): Buffer {
+  const bufv = obj.writeTo(new BufferVisitor(Buffer.alloc(obj.byteLen())))
+  return bufv.buf
 }
 
 // We define an unsigned 16-bit floating point value, inspired by IEEE floats
@@ -99,6 +103,37 @@ export function writeUFloat16 (buf: Buffer, value: number, offset: number): Buff
     res = Math.floor(value) + (exponent << Float16MantissaBits)
   }
   buf.writeUInt16LE(res, offset)
+  return buf
+}
+
+const unsafeUIntRadix = 0xffffffffffff + 1
+export function readUnsafeUIntLE (buf: Buffer, offset: number, len: number): number {
+  let val = 0
+  if (len > 6) {
+    val = buf.readUIntLE(offset, 6)
+    const high = buf.readUIntLE(offset + 6, len - 6)
+    if (high > 0) {
+      val += high * unsafeUIntRadix
+    }
+  } else if (len > 0) {
+    val = buf.readUIntLE(offset, len)
+  }
+  return val
+}
+
+export function writeUnsafeUIntLE (buf: Buffer, val: number, offset: number, len: number): Buffer {
+  if (len > 6) {
+    if (val <= 0xffffffffffff) {
+      buf.writeUIntLE(val, offset, 6)
+      buf.writeUIntLE(0, offset + 6, len - 6) // clear cached bits
+    } else {
+      const high = Math.floor(val / unsafeUIntRadix)
+      buf.writeUIntLE(val - high * unsafeUIntRadix, offset, 6)
+      buf.writeUIntLE(high, offset + 6, len - 6)
+    }
+  } else if (len > 0) {
+    buf.writeUIntLE(val, offset, len)
+  }
   return buf
 }
 

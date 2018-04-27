@@ -5,7 +5,7 @@
 
 import { inspect } from 'util'
 import { QuicError } from './error'
-import { Visitor, BufferVisitor } from './common'
+import { BufferVisitor } from './common'
 import { parseFrame, Frame } from './frame'
 
 import {
@@ -82,8 +82,8 @@ import {
 // 0x80 is currently unused, and must be set to 0.
 
 export function parsePacket (bufv: BufferVisitor, packetSentBy: SessionType): Packet {
-  bufv.v.walk(0) // align start and end
-  const flag = bufv.readUIntLE(bufv.v.start, 1, true)
+  bufv.walk(0) // align start and end
+  const flag = bufv.buf.readUIntLE(bufv.start, 1)
 
   // 0x80, currently unused
   if (flag >= 127) {
@@ -115,9 +115,11 @@ export abstract class Packet {
 
   flag: number
   connectionID: ConnectionID
+  sentTime: number
   constructor (connectionID: ConnectionID, flag: number) {
     this.flag = flag
     this.connectionID = connectionID
+    this.sentTime = 0 // timestamp, ms
   }
 
   isReset (): boolean {
@@ -166,7 +168,7 @@ export class ResetPacket extends Packet {
   // |         (PRST)                    |  (variable length)
   // +--------+--------+--------+--------+--------+--------+---
   static fromBuffer (bufv: BufferVisitor): ResetPacket {
-    bufv.v.walk(1) // flag
+    bufv.walk(1) // flag
     const connectionID = ConnectionID.fromBuffer(bufv)
     const quicTag = QuicTag.fromBuffer(bufv)
     if (quicTag.name !== 'PRST' || quicTag.keys[0] !== 'RNON') {
@@ -193,11 +195,11 @@ export class ResetPacket extends Packet {
     this.nonceProof = nonceProof
     const rseq = tags.getTag('RSEQ')
     if (rseq != null) {
-      this.packetNumber = PacketNumber.fromBuffer(Visitor.wrap(rseq), rseq.length)
+      this.packetNumber = PacketNumber.fromBuffer(new BufferVisitor(rseq), rseq.length)
     }
     const cadr = tags.getTag('CADR')
     if (cadr != null) {
-      this.socketAddress = SocketAddress.fromBuffer(Visitor.wrap(cadr))
+      this.socketAddress = SocketAddress.fromBuffer(new BufferVisitor(cadr))
     }
   }
 
@@ -216,8 +218,8 @@ export class ResetPacket extends Packet {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    bufv.v.walk(1)
-    bufv.writeUInt8(this.flag, bufv.v.start, true)
+    bufv.walk(1)
+    bufv.buf.writeUInt8(this.flag, bufv.start)
     this.connectionID.writeTo(bufv)
     this.tags.writeTo(bufv)
     return bufv
@@ -243,12 +245,12 @@ export class NegotiationPacket extends Packet {
   }
 
   static fromBuffer (bufv: BufferVisitor): NegotiationPacket {
-    bufv.v.walk(1) // flag
+    bufv.walk(1) // flag
     const connectionID = ConnectionID.fromBuffer(bufv)
     const versions = []
-    while (bufv.length > bufv.v.end) {
-      bufv.v.walk(4)
-      const version = bufv.toString('utf8', bufv.v.start, bufv.v.end)
+    while (bufv.length > bufv.end) {
+      bufv.walk(4)
+      const version = bufv.buf.toString('utf8', bufv.start, bufv.end)
       if (!isSupportedVersion(version)) {
         throw new QuicError('QUIC_INVALID_VERSION')
       }
@@ -276,12 +278,12 @@ export class NegotiationPacket extends Packet {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    bufv.v.walk(1)
-    bufv.writeUInt8(this.flag, bufv.v.start, true)
+    bufv.walk(1)
+    bufv.buf.writeUInt8(this.flag, bufv.start)
     this.connectionID.writeTo(bufv)
     for (const version of this.versions) {
-      bufv.v.walk(4)
-      bufv.write(version, bufv.v.start, 4)
+      bufv.walk(4)
+      bufv.buf.write(version, bufv.start, 4)
     }
     return bufv
   }
@@ -294,14 +296,14 @@ export class RegularPacket extends Packet {
   // | Type   | Payload | Type   | Payload |
   // +--------+---...---+--------+---...---+
   static fromBuffer (bufv: BufferVisitor, flag: number): RegularPacket {
-    bufv.v.walk(1) // flag
+    bufv.walk(1) // flag
     const connectionID = ConnectionID.fromBuffer(bufv)
 
     let version = ''
     const hasVersion = (flag & 0b1) > 0
     if (hasVersion) {
-      bufv.v.walk(4)
-      version = bufv.toString('utf8', bufv.v.start, bufv.v.end)
+      bufv.walk(4)
+      version = bufv.buf.toString('utf8', bufv.start, bufv.end)
       if (!isSupportedVersion(version)) {
         throw new QuicError('QUIC_INVALID_VERSION')
       }
@@ -309,8 +311,8 @@ export class RegularPacket extends Packet {
 
     let nonce = null
     if ((flag & 0b100) > 0) {
-      bufv.v.walk(32)
-      nonce = bufv.slice(bufv.v.start, bufv.v.end)
+      bufv.walk(32)
+      nonce = bufv.buf.slice(bufv.start, bufv.end)
       if (nonce.length !== 32) {
         throw new QuicError('QUIC_INTERNAL_ERROR')
       }
@@ -321,7 +323,7 @@ export class RegularPacket extends Packet {
     if (version !== '') {
       packet.setVersion(version)
     }
-    while (bufv.v.end < bufv.length) {
+    while (bufv.end < bufv.length) {
       packet.addFrames(parseFrame(bufv, packetNumber))
     }
 
@@ -384,7 +386,7 @@ export class RegularPacket extends Packet {
     return this
   }
 
-  byteLen (): number {
+  headerLen (): number {
     let len = 9
     if (this.version !== '') {
       len += 4
@@ -393,6 +395,11 @@ export class RegularPacket extends Packet {
       len += 32
     }
     len += this.packetNumber.byteLen()
+    return len
+  }
+
+  byteLen (): number {
+    let len = this.headerLen()
     for (const frame of this.frames) {
       len += frame.byteLen()
     }
@@ -400,17 +407,17 @@ export class RegularPacket extends Packet {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    bufv.v.walk(1)
-    bufv.writeUInt8(this.flag, bufv.v.start, true)
+    bufv.walk(1)
+    bufv.buf.writeUInt8(this.flag, bufv.start)
     this.connectionID.writeTo(bufv)
 
     if (this.version !== '') {
-      bufv.v.walk(4)
-      bufv.write(this.version, bufv.v.start, 4)
+      bufv.walk(4)
+      bufv.buf.write(this.version, bufv.start, 4)
     }
     if (this.nonce != null) {
-      bufv.v.walk(32)
-      this.nonce.copy(bufv, bufv.v.start, 0, 32)
+      bufv.walk(32)
+      this.nonce.copy(bufv.buf, bufv.start, 0, 32)
     }
     this.packetNumber.writeTo(bufv)
     for (const frame of this.frames) {

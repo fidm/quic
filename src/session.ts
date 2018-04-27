@@ -28,6 +28,7 @@ import {
 import {
   kID,
   kFC,
+  kRTT,
   kStreams,
   kSocket,
   kState,
@@ -55,6 +56,7 @@ import {
 import { Packet, ResetPacket, RegularPacket } from './internal/packet'
 import { QuicError, StreamError } from './internal/error'
 import { ConnectionFlowController } from './internal/flowcontrol'
+import { RTTStats } from './internal/congestion'
 
 import { Socket, sendPacket } from './socket'
 import { Stream } from './stream'
@@ -84,6 +86,7 @@ export class Session extends EventEmitter {
   protected [kVersion]: string
   protected [kNextPacketNumber]: PacketNumber
   protected [kUnackedPackets]: Queue<RegularPacket>
+  protected [kRTT]: RTTStats
   protected [kFC]: ConnectionFlowController
   constructor (id: ConnectionID, type: SessionType) {
     super()
@@ -99,6 +102,7 @@ export class Session extends EventEmitter {
     this[kIntervalCheck] = null
     this[kNextPacketNumber] = new PacketNumber(1)
     this[kUnackedPackets] = new Queue() // up to 1000
+    this[kRTT] = new RTTStats()
     this[kFC] = this.isClient ? // TODO
       new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowClient) :
       new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowServer)
@@ -138,37 +142,43 @@ export class Session extends EventEmitter {
     }
   }
 
-  _sendFrame (frame: Frame, callback?: (...args: any[]) => void) {
+  _newRegularPacket (): RegularPacket {
     const packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
-    const regularPacket = new RegularPacket(this[kID], packetNumber, randomBytes(32))
+    return new RegularPacket(this[kID], packetNumber, randomBytes(32))
+  }
+
+  _sendFrame (frame: Frame, callback?: (...args: any[]) => void) {
+    const regularPacket = this._newRegularPacket()
     regularPacket.addFrames(frame)
     regularPacket.isRetransmittable = frame.isRetransmittable()
     this._sendPacket(regularPacket, callback)
   }
 
   _sendStopWaitingFrame (leastUnacked: number) {
-    const packetNumber = this[kNextPacketNumber]
-    this[kNextPacketNumber] = packetNumber.nextNumber()
-    const frame = new StopWaitingFrame(packetNumber, leastUnacked)
-    const regularPacket = new RegularPacket(this[kID], packetNumber, randomBytes(32))
+    const regularPacket = this._newRegularPacket()
+    const frame = new StopWaitingFrame(regularPacket.packetNumber, leastUnacked)
     regularPacket.addFrames(frame)
     regularPacket.isRetransmittable = false
 
-    debug(`session %s - write StopWaitingFrame, packetNumber: %d, leastUnacked: %d`, this.id, packetNumber.valueOf(), leastUnacked)
+    debug(`%s session %s - write StopWaitingFrame, packetNumber: %d, leastUnacked: %d`,
+      SessionType[this[kType]], this.id, frame.packetNumber.valueOf(), leastUnacked)
     this._sendPacket(regularPacket)
   }
 
-  _retransmit (frame: AckFrame): number {
+  _retransmit (frame: AckFrame, rcvTime: number): number {
     const unackedPackets = this[kUnackedPackets]
+    debug(`%s session %s - start retransmit, count: %d, ackFrame: %j`,
+      SessionType[this[kType]], this.id, unackedPackets.length, frame.valueOf())
 
-    let packet = unackedPackets.first()
     let count = 0
-    debug(`session %s - start retransmit, count: %d, ackFrame: %j`, this.id, unackedPackets.length, frame.valueOf())
+    let packet = unackedPackets.first()
     while (packet != null) {
       const packetNumber = packet.packetNumber.valueOf()
       if (packetNumber > frame.largestAcked) {
         break // wait for newest ack
+      } else if (packetNumber === frame.largestAcked) {
+        this[kRTT].updateRTT(packet.sentTime, rcvTime, frame.delayTime)
       }
 
       if (frame.acksPacket(packetNumber)) {
@@ -183,7 +193,7 @@ export class Session extends EventEmitter {
       count += 1
       packet = unackedPackets.first()
     }
-    debug(`session %s - finish retransmit, count: %d`, this.id, count)
+    debug(`%s session %s - finish retransmit, count: %d`, SessionType[this[kType]], this.id, count)
     return count
   }
 
@@ -214,12 +224,12 @@ export class Session extends EventEmitter {
           return callback(QuicError.fromError(QuicError.QUIC_TOO_MANY_OUTSTANDING_SENT_PACKETS))
         }
       }
-      debug(`session %s - write RegularPacket, packetNumber: %d, frames: %j`,
-        this.id, _packet.packetNumber.valueOf(), _packet.frames.map((frame) => frame.name))
+      debug(`%s session %s - write RegularPacket, packetNumber: %d, frames: %j`,
+        SessionType[this[kType]], this.id, _packet.packetNumber.valueOf(), _packet.frames.map((frame) => frame.name))
     }
 
     sendPacket(socket, packet, this[kState].remotePort, this[kState].remoteAddress, callback)
-    // debug(`session %s - write packet: %j`, this.id, packet.valueOf())
+    // debug(`%s session %s - write packet: %j`, this.id, packet.valueOf())
     // const buf = toBuffer(packet)
     // socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
   }
@@ -229,7 +239,8 @@ export class Session extends EventEmitter {
       // update for session
       streamID = new StreamID(0)
     }
-    debug(`session %s - write WindowUpdateFrame, streamID: %d, offset: %d`, this.id, streamID.valueOf(), offset)
+    debug(`%s session %s - write WindowUpdateFrame, streamID: %d, offset: %d`,
+      SessionType[this[kType]], this.id, streamID.valueOf(), offset)
     this._sendFrame(new WindowUpdateFrame(streamID, offset), (err: any) => {
       if (err != null) {
         this.emit('error', err)
@@ -242,8 +253,8 @@ export class Session extends EventEmitter {
     if (frame == null) {
       return
     }
-    debug(`session %s - write AckFrame, lowestAcked: %d, largestAcked: %d, ackRanges: %j`,
-      this.id, frame.lowestAcked, frame.largestAcked, frame.ackRanges)
+    debug(`%s session %s - write AckFrame, lowestAcked: %d, largestAcked: %d, ackRanges: %j`,
+      SessionType[this[kType]], this.id, frame.lowestAcked, frame.largestAcked, frame.ackRanges)
     this._sendFrame(frame, (err) => {
       if (err != null) {
         this.destroy(err)
@@ -263,15 +274,15 @@ export class Session extends EventEmitter {
     if (this[kACKHandler].ack(packetNumber, rcvTime, packet.needAck())) {
       this._trySendAckFrame()
     }
-    debug(`session %s - received RegularPacket, packetNumber: %d, frames: %j`,
-      this.id, packetNumber, packet.frames.map((frame) => frame.name))
+    debug(`%s session %s - received RegularPacket, packetNumber: %d, frames: %j`,
+      SessionType[this[kType]], this.id, packetNumber, packet.frames.map((frame) => frame.name))
     for (const frame of packet.frames) {
       switch (frame.name) {
         case 'STREAM':
           this._handleStreamFrame(frame as StreamFrame, rcvTime)
           break
         case 'ACK':
-          this._handleACKFrame(frame as AckFrame)
+          this._handleACKFrame(frame as AckFrame, rcvTime)
           break
         case 'STOP_WAITING':
           // The STOP_WAITING frame is sent to inform the peer that it should not continue to
@@ -344,7 +355,7 @@ export class Session extends EventEmitter {
     stream._handleRstFrame(frame, rcvTime)
   }
 
-  _handleACKFrame (frame: AckFrame) {
+  _handleACKFrame (frame: AckFrame, rcvTime: number) {
     // The sender must always close the connection if an unsent packet number is acked,
     // so this mechanism automatically defeats any potential attackers.
     if (frame.largestAcked >= this[kNextPacketNumber].valueOf()) {
@@ -356,7 +367,7 @@ export class Session extends EventEmitter {
     if (frame.hasMissingRanges()) {
       this._sendStopWaitingFrame(frame.largestAcked)
     }
-    this._retransmit(frame)
+    this._retransmit(frame, rcvTime)
   }
 
   _handleStopWaitingFrame (frame: StopWaitingFrame) {
@@ -369,8 +380,8 @@ export class Session extends EventEmitter {
     const streamID = frame.streamID.valueOf()
     const offset = frame.offset.valueOf()
 
-    debug(`session %s - received WindowUpdateFrame, streamID: %d, offset: %d`,
-      this.id, streamID, offset)
+    debug(`%s session %s - received WindowUpdateFrame, streamID: %d, offset: %d`,
+      SessionType[this[kType]], this.id, streamID, offset)
     if (streamID === 0) {
       this[kFC].updateMaxSendOffset(offset)
     } else {
@@ -434,7 +445,8 @@ export class Session extends EventEmitter {
 
       this[kState].shuttingDown = true
       const frame = new GoAwayFrame(this[kNextStreamID].prevID(), QuicError.fromError(err))
-      debug(`session %s - write GoAwayFrame, streamID: %d, error: %j`, this.id, frame.streamID.valueOf(), frame.error)
+      debug(`%s session %s - write GoAwayFrame, streamID: %d, error: %j`,
+        SessionType[this[kType]], this.id, frame.streamID.valueOf(), frame.error)
       this._sendFrame(frame, (_e: any) => {
         resolve()
       })
@@ -443,7 +455,7 @@ export class Session extends EventEmitter {
 
   ping (): Promise<void> {
     return new Promise((resolve, reject) => {
-      debug(`session %s - write PingFrame`, this.id)
+      debug(`%s session %s - write PingFrame`, SessionType[this[kType]], this.id)
       this._sendFrame(new PingFrame(), (err: any) => {
         if (err != null) {
           reject(err)
@@ -465,7 +477,7 @@ export class Session extends EventEmitter {
       }
 
       const frame = new ConnectionCloseFrame(QuicError.fromError(err))
-      debug(`session %s - write ConnectionCloseFrame, error: %j`, this.id, frame.error)
+      debug(`%s session %s - write ConnectionCloseFrame, error: %j`, SessionType[this[kType]], this.id, frame.error)
       this._sendFrame(frame, (e: any) => {
         this.destroy(e)
         resolve()
@@ -488,7 +500,7 @@ export class Session extends EventEmitter {
       }
 
       const packet = new ResetPacket(this[kID], tags)
-      debug(`session %s - write ResetPacket, packet: %j`, this.id, packet)
+      debug(`%s session %s - write ResetPacket, packet: %j`, SessionType[this[kType]], this.id, packet)
 
       this._sendPacket(packet, (e: any) => {
         this.destroy(e)
@@ -498,10 +510,10 @@ export class Session extends EventEmitter {
   }
 
   destroy (err: any) {
-    debug(`session %s - session destroyed, error: %j`, this.id, err)
     if (this[kState].destroyed) {
       return
     }
+    debug(`%s session %s - session destroyed, error: %j`, SessionType[this[kType]], this.id, err)
 
     err = QuicError.checkAny(err)
     if (err != null && err.isNoError) {
@@ -513,7 +525,6 @@ export class Session extends EventEmitter {
       socket[kState].conns.delete(this.id)
       if (this.isClient && !socket[kState].destroyed && (socket[kState].exclusive || socket[kState].conns.size === 0)) {
         socket.close()
-        socket.removeAllListeners()
         socket[kState].destroyed = true
       }
       this[kSocket] = null
@@ -539,14 +550,6 @@ export class Session extends EventEmitter {
     }
     return
   }
-
-  ref () {
-    return
-  }
-
-  unref () {
-    return
-  }
 }
 
 export class SessionState {
@@ -560,7 +563,7 @@ export class SessionState {
   remotePort: number
   remoteAddr: SocketAddress | null // SocketAddress
 
-  pendingAck: number
+  maxPacketSize: number
   bytesRead: number
   bytesWritten: number
   idleTimeout: number
@@ -584,7 +587,7 @@ export class SessionState {
     this.remotePort = 0
     this.remoteAddr = null // SocketAddress
 
-    this.pendingAck = 0
+    this.maxPacketSize = 0
     this.bytesRead = 0
     this.bytesWritten = 0
     this.idleTimeout = DefaultIdleTimeout
@@ -637,7 +640,7 @@ export class ACKHandler {
     }
 
     let shouldAck = this.numbersAcked.unshift(packetNumber) >= 511 // 256 blocks + 255 gaps, too many packets, should ack
-    if (!needAck && this.largestAcked - this.lowestAcked === 1) {
+    if (!needAck && this.largestAcked - this.lowestAcked <= 1) {
       // ACK frame
       this.lowestAcked = this.largestAcked
       this.numbersAcked.length = 1

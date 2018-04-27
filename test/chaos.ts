@@ -242,13 +242,13 @@ suite('chaos testing', function () {
     }
   })
 
-  suite.skip('echo rand readable stream when packets loss', function () {
+  suite('echo rand readable stream when packets loss and out of order', function () {
     for (const i of [1, 2, 3, 4, 5]) {
       // random stream & hash stream --(5MB)--> client --> server --(echo)--> client --> hash stream --> hash should equaled
       const bytes = 1024 * 1024 * 1 * i
-      const lossRatio = 0.618 * 0.1 * i
+      const lossRatio = 0.618 * 0.05 * i
       it(`with loss ratio ${lossRatio * 100}%`, async function () {
-        this.timeout(1000 * 200)
+        this.timeout(1000 * 60 * 2)
 
         const server = echoServer()
         await server.listen(0)
@@ -259,7 +259,7 @@ suite('chaos testing', function () {
           if (rand < lossRatio) {
             return // packet loss
           }
-          if (rand < 0.5) {
+          if (rand < 0.2) {
             setTimeout(() => serverListener.call(this, msg, rinfo), rand * 10) // out-of-order
           } else {
             serverListener.call(this, msg, rinfo)
@@ -278,7 +278,7 @@ suite('chaos testing', function () {
           if (rand < lossRatio) {
             return // packet loss
           }
-          if (rand < 0.5) {
+          if (rand < 0.2) {
             setTimeout(() => clientListener.call(this, msg, rinfo), rand * 10) // out-of-order
           } else {
             clientListener.call(this, msg, rinfo)

@@ -9,7 +9,7 @@ import { ok, strictEqual, deepEqual, throws, equal } from 'assert'
 import {
   ConnectionID, PacketNumber, StreamID, SocketAddress, Offset, QuicTag,
 } from '../src/internal/protocol'
-import { Visitor, toBuffer } from '../src/internal/common'
+import { BufferVisitor, toBuffer } from '../src/internal/common'
 
 import { bufferFromBytes } from './common'
 
@@ -20,38 +20,38 @@ suite('QUIC Protocol', function () {
       strictEqual(connectionID.byteLen(), 8)
       strictEqual(connectionID.valueOf().length, 16)
       ok(connectionID.equals(new ConnectionID(connectionID.toString())))
-      ok(connectionID.equals(ConnectionID.fromBuffer(toBuffer(connectionID))))
+      ok(connectionID.equals(ConnectionID.fromBuffer(new BufferVisitor(toBuffer(connectionID)))))
     })
   })
 
   suite('PacketNumber', function () {
     it('PacketNumber.fromBuffer', function () {
-      throws(() => PacketNumber.fromBuffer(bufferFromBytes([]), 0))
-      let packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1]), 1)
+      throws(() => PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([])), 0))
+      let packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)
       strictEqual(packetNumber.valueOf(), 1)
       ok(toBuffer(packetNumber).equals(bufferFromBytes([0x1])))
 
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x1, 0x0, 0x0]), 4)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x1, 0x0, 0x0])), 4)
       strictEqual(packetNumber.valueOf(), 0x100)
       ok(toBuffer(packetNumber).equals(bufferFromBytes([0x0, 0x1])))
 
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0]), 4)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x1, 0x0])), 4)
       strictEqual(packetNumber.valueOf(), 0x10000)
       ok(toBuffer(packetNumber).equals(bufferFromBytes([0x0, 0x0, 0x1, 0x0])))
 
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]), 6)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0])), 6)
       strictEqual(packetNumber.valueOf(), 0x10000)
       ok(toBuffer(packetNumber).equals(bufferFromBytes([0x0, 0x0, 0x1, 0x0])))
 
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x0]), 8)
+        0x1, 0x0])), 6)
       strictEqual(packetNumber.valueOf(), 0x100000000)
       ok(toBuffer(packetNumber).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x1, 0x0])))
 
-      throws(() => PacketNumber.fromBuffer(bufferFromBytes([
+      throws(() => PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x1, 0x0]), 8))
+        0x1, 0x0, 0x1, 0x0])), 8))
     })
 
     it('new PacketNumber', function () {
@@ -82,11 +82,11 @@ suite('QUIC Protocol', function () {
     })
 
     it('packetNumber.equals', function () {
-      ok(new PacketNumber(1).equals(PacketNumber.fromBuffer(bufferFromBytes([0x1]), 1)))
+      ok(new PacketNumber(1).equals(PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)))
       ok(new PacketNumber(0x10000)
-        .equals(PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]), 6)))
+        .equals(PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0])), 6)))
       ok(!new PacketNumber(0x10000)
-        .equals(PacketNumber.fromBuffer(bufferFromBytes([0x0, 0x0, 0x0, 0x1, 0x0, 0x0]), 6)))
+        .equals(PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x0, 0x1, 0x0, 0x0])), 6)))
     })
 
     it('packetNumber.byteLen', function () {
@@ -109,20 +109,20 @@ suite('QUIC Protocol', function () {
     })
 
     it('packetNumber.flagBits()', function () {
-      let packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1]), 1)
+      let packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)
       strictEqual(packetNumber.flagBits(), 0b00)
 
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1, 0x1]), 2)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1])), 2)
       strictEqual(packetNumber.flagBits(), 0b01)
 
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1]), 3)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1])), 3)
       strictEqual(packetNumber.flagBits(), 0b10)
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1]), 4)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1])), 4)
       strictEqual(packetNumber.flagBits(), 0b10)
 
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1]), 5)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1])), 5)
       strictEqual(packetNumber.flagBits(), 0b11)
-      packetNumber = PacketNumber.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1, 0x1]), 6)
+      packetNumber = PacketNumber.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1, 0x1])), 6)
       strictEqual(packetNumber.flagBits(), 0b11)
     })
 
@@ -136,37 +136,37 @@ suite('QUIC Protocol', function () {
 
   suite('StreamID', function () {
     it('StreamID.fromBuffer', function () {
-      throws(() => StreamID.fromBuffer(bufferFromBytes([]), 0))
+      throws(() => StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([])), 0))
 
-      let streamID = StreamID.fromBuffer(bufferFromBytes([0x0]), 1)
+      let streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x0])), 1)
       strictEqual(streamID.valueOf(), 0)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x0])))
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x1]), 1)
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)
       strictEqual(streamID.valueOf(), 1)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x1])))
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x0, 0x1, 0x0, 0x0]), 4)
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x1, 0x0, 0x0])), 4)
       strictEqual(streamID.valueOf(), 0x100)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x0, 0x1])))
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0]), 4)
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x1, 0x0])), 4)
       strictEqual(streamID.valueOf(), 0x10000)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x0, 0x0, 0x1])))
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]), 6)
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0])), 6)
       strictEqual(streamID.valueOf(), 0x10000)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x0, 0x0, 0x1])))
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([
         0x0, 0x0, 0x0, 0x1,
-        0x0, 0x0, 0x0, 0x0]), 8)
+        0x0, 0x0])), 6)
       strictEqual(streamID.valueOf(), 0x1000000)
       ok(toBuffer(streamID).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x1])))
 
-      throws(() => StreamID.fromBuffer(bufferFromBytes([
+      throws(() => StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x0]), 8))
+        0x1, 0x0, 0x0, 0x0])), 8))
     })
 
     it('new StreamID', function () {
@@ -202,11 +202,11 @@ suite('QUIC Protocol', function () {
     })
 
     it('StreamID.equals', function () {
-      ok(new StreamID(1).equals(StreamID.fromBuffer(bufferFromBytes([0x1]), 1)))
+      ok(new StreamID(1).equals(StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)))
       ok(new StreamID(0x10000)
-        .equals(StreamID.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]), 6)))
+        .equals(StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0])), 6)))
       ok(!new StreamID(0x10000)
-        .equals(StreamID.fromBuffer(bufferFromBytes([0x0, 0x0, 0x0, 0x1, 0x0, 0x0]), 6)))
+        .equals(StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x0, 0x1, 0x0, 0x0])), 6)))
     })
 
     it('StreamID.byteLen', function () {
@@ -226,16 +226,16 @@ suite('QUIC Protocol', function () {
     })
 
     it('streamID.flagBits()', function () {
-      let streamID = StreamID.fromBuffer(bufferFromBytes([0x1]), 1)
+      let streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)
       strictEqual(streamID.flagBits(), 0b00)
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x1, 0x1]), 2)
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1])), 2)
       strictEqual(streamID.flagBits(), 0b01)
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1]), 3)
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1])), 3)
       strictEqual(streamID.flagBits(), 0b10)
 
-      streamID = StreamID.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1]), 4)
+      streamID = StreamID.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1])), 4)
       strictEqual(streamID.flagBits(), 0b11)
     })
 
@@ -251,7 +251,7 @@ suite('QUIC Protocol', function () {
     it('SocketAddress, IPv4', function () {
       let socketAddress = new SocketAddress(
         { port: 3000, family: 'IPv4', address: '127.0.0.1' })
-      const res = SocketAddress.fromBuffer(toBuffer(socketAddress))
+      const res = SocketAddress.fromBuffer(new BufferVisitor(toBuffer(socketAddress)))
       ok(socketAddress.equals(res))
 
       socketAddress = new SocketAddress(
@@ -264,13 +264,13 @@ suite('QUIC Protocol', function () {
       let socketAddress = new SocketAddress(
         { port: 65534, family: 'IPv6', address: '::1' })
       strictEqual(socketAddress.address, '0:0:0:0:0:0:0:1')
-      const res = SocketAddress.fromBuffer(toBuffer(socketAddress))
+      const res = SocketAddress.fromBuffer(new BufferVisitor(toBuffer(socketAddress)))
       ok(socketAddress.equals(res))
 
       socketAddress = new SocketAddress({
         address: '2001:700:300:1800::', family: 'IPv6', port: 0x5678})
       strictEqual(socketAddress.address, '2001:700:300:1800:0:0:0:0')
-      ok(socketAddress.equals(SocketAddress.fromBuffer(toBuffer(socketAddress))))
+      ok(socketAddress.equals(SocketAddress.fromBuffer(new BufferVisitor(toBuffer(socketAddress)))))
 
       socketAddress = new SocketAddress({
         address: '2001:700:300:1800::f', family: 'IPv6', port: 0x5678})
@@ -284,37 +284,43 @@ suite('QUIC Protocol', function () {
 
   suite('Offset', function () {
     it('Offset.fromBuffer', function () {
-      let offset = Offset.fromBuffer(bufferFromBytes([]), 0)
+      let offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([])), 0)
       strictEqual(offset.valueOf(), 0)
       ok(toBuffer(offset).equals(bufferFromBytes([])))
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x1]), 1)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)
       strictEqual(offset.valueOf(), 1)
       ok(toBuffer(offset).equals(bufferFromBytes([0x1, 0x0])))
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x0, 0x1, 0x0, 0x0]), 4)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x1, 0x0, 0x0])), 4)
       strictEqual(offset.valueOf(), 0x100)
       ok(toBuffer(offset).equals(bufferFromBytes([0x0, 0x1])))
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0]), 6)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x1, 0x0, 0x0, 0x0])), 6)
       strictEqual(offset.valueOf(), 0x10000)
       ok(toBuffer(offset).equals(bufferFromBytes([0x0, 0x0, 0x1])))
 
-      offset = Offset.fromBuffer(bufferFromBytes([
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x0]), 8)
+        0x1, 0x0, 0x0, 0x0])), 8)
       strictEqual(offset.valueOf(), 0x100000000)
       ok(toBuffer(offset).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x1])))
 
-      offset = Offset.fromBuffer(bufferFromBytes([
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x0, 0x1, 0x0, 0x0]), 8)
+        0x0, 0x1, 0x0, 0x0])), 8)
       strictEqual(offset.valueOf(), 0x010000000000)
       ok(toBuffer(offset).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x0, 0x1])))
 
-      throws(() => Offset.fromBuffer(bufferFromBytes([
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([
+        0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0x1f, 0x00])), 8)
+      strictEqual(offset.valueOf(), Number.MAX_SAFE_INTEGER)
+      ok(toBuffer(offset).equals(bufferFromBytes([0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x1f])))
+
+      throws(() => Offset.fromBuffer(new BufferVisitor(bufferFromBytes([
         0x0, 0x0, 0x0, 0x0,
-        0x1, 0x0, 0x0, 0x1]), 8))
+        0x1, 0x0, 0x0, 0x1])), 8))
     })
 
     it('new Offset', function () {
@@ -353,6 +359,12 @@ suite('QUIC Protocol', function () {
       strictEqual(offset.valueOf(), value)
       ok(toBuffer(offset).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x0, 0x1])))
 
+      value = Number.MAX_SAFE_INTEGER
+      offset = new Offset(value)
+      strictEqual(offset.valueOf(), value)
+      strictEqual(offset.byteLen(), 7)
+      Offset.fromBuffer(new BufferVisitor(toBuffer(offset)), offset.byteLen()).equals(offset)
+
       value = 0x100000000000000 // > MaxOffset
       throws(() => new Offset(value))
     })
@@ -364,25 +376,25 @@ suite('QUIC Protocol', function () {
     })
 
     it('offset.flagBits()', function () {
-      let offset = Offset.fromBuffer(bufferFromBytes([]), 0)
+      let offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([])), 0)
       strictEqual(offset.flagBits(), 0b000)
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x1]), 1)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x1])), 1)
       strictEqual(offset.flagBits(), 0b001)
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x1, 0x1]), 2)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1])), 2)
       strictEqual(offset.flagBits(), 0b001)
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1]), 3)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1])), 3)
       strictEqual(offset.flagBits(), 0b010)
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1]), 4)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1])), 4)
       strictEqual(offset.flagBits(), 0b011)
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1]), 5)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1])), 5)
       strictEqual(offset.flagBits(), 0b100)
 
-      offset = Offset.fromBuffer(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1, 0x1]), 6)
+      offset = Offset.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1, 0x1, 0x1])), 6)
       strictEqual(offset.flagBits(), 0b101)
     })
 
@@ -441,14 +453,14 @@ suite('QUIC Protocol', function () {
         0x04, 0x1F, 0xC6, 0x2C,
         0xBB, 0x01]))
 
-      const bufv = Visitor.wrap(Buffer.alloc(quicTag.byteLen()))
+      const bufv = new BufferVisitor(Buffer.alloc(quicTag.byteLen()))
       quicTag.writeTo(bufv)
-      ok(data.equals(bufv))
+      ok(data.equals(bufv.buf))
     })
 
     it('QuicTag.fromBuffer', function () {
       const buf = data.slice()
-      const quicTag = QuicTag.fromBuffer(Visitor.wrap(buf))
+      const quicTag = QuicTag.fromBuffer(new BufferVisitor(buf))
       strictEqual(quicTag.name, 'PRST')
       deepEqual(quicTag.keys, ['RNON', 'RSEQ', 'CADR'])
 
@@ -466,13 +478,13 @@ suite('QUIC Protocol', function () {
         0x04, 0x1F, 0xC6, 0x2C,
         0xBB, 0x01])))
 
-      const bufv = Visitor.wrap(Buffer.alloc(8 + quicTag.byteLen()))
-      bufv.v.walk(4)
+      const bufv = new BufferVisitor(Buffer.alloc(8 + quicTag.byteLen()))
+      bufv.walk(4)
       quicTag.writeTo(bufv)
       const empty4 = bufferFromBytes([0x0, 0x0, 0x0, 0x0])
-      ok(empty4.equals(bufv.slice(0, 4)))
-      ok(empty4.equals(bufv.slice(bufv.v.end)))
-      bufv.v.reset(4, 4)
+      ok(empty4.equals(bufv.buf.slice(0, 4)))
+      ok(empty4.equals(bufv.buf.slice(bufv.end)))
+      bufv.reset(4, 4)
 
       const quicTag2 = QuicTag.fromBuffer(bufv)
       ok(quicTag.equals(quicTag2))

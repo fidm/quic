@@ -39,12 +39,11 @@ export const MaxOffset = Number.MAX_SAFE_INTEGER // 1<<62 - 1?
 // Ethernet's max packet size is 1500 bytes,  1500 - 48 = 1452.
 //
 // MaxPacketSizeIPv4 is the maximum packet size that we use for sending IPv4 packets.
-// export const MaxPacketSizeIPv4 = 1252
+export const MaxPacketSizeIPv4 = 1252
 // MaxPacketSizeIPv6 is the maximum packet size that we use for sending IPv6 packets.
-// export const MaxPacketSizeIPv6 = 1232
-export const MaxReceivePacketSize = 1232
+export const MaxPacketSizeIPv6 = 1232
+export const MaxReceivePacketSize = 1452
 
-export const MaxStreamDataSize = MaxReceivePacketSize - 51 - 15 // todo
 export const MaxStreamReadCacheSize = 1024 * 1024 * 2 // todo
 
 // ----------

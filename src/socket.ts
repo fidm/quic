@@ -9,7 +9,8 @@ import {
 } from './internal/symbol'
 import { Packet } from './internal/packet'
 import { QuicError } from './internal/error'
-import { BufferVisitor, Visitor } from './internal/common'
+import { BufferVisitor } from './internal/common'
+import { MaxReceivePacketSize } from './internal/constant'
 import { Client } from './client';
 
 export interface AddressInfo {
@@ -40,6 +41,7 @@ export function createSocket (family: number): Socket {
 
   socket.once('close', () => {
     state.destroyed = true
+    socket.removeAllListeners()
   })
   Object.assign(socket, { [kState]: state })
   return socket as Socket
@@ -48,7 +50,7 @@ export function createSocket (family: number): Socket {
 const bufferPool: BufferVisitor[] = []
 export function sendPacket (socket: Socket, packet: Packet, remotePort: number, remoteAddr: string, callback: (err: any) => void) {
   const byteLen = packet.byteLen()
-  if (byteLen > 1500) {
+  if (byteLen > MaxReceivePacketSize) {
     return callback(new QuicError('packet size too large!'))
   }
   if (socket[kState].destroyed) {
@@ -57,11 +59,13 @@ export function sendPacket (socket: Socket, packet: Packet, remotePort: number, 
 
   let bufv = bufferPool.shift()
   if (bufv == null) {
-    bufv = Visitor.wrap(Buffer.alloc(1500)) // MTU
+    bufv = new BufferVisitor(Buffer.alloc(MaxReceivePacketSize))
+  } else {
+    bufv.reset()
   }
-  bufv.v.reset(0, 0)
   packet.writeTo(bufv)
-  socket.send(bufv, 0, bufv.v.end, remotePort, remoteAddr, (err: any) => {
+  socket.send(bufv.buf, 0, bufv.end, remotePort, remoteAddr, (err: any) => {
+    packet.sentTime = Date.now()
     bufferPool.push(bufv as BufferVisitor)
     callback(QuicError.checkAny(err))
   })

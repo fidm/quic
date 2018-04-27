@@ -7,7 +7,7 @@
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws } from 'assert'
 
-import { Visitor, toBuffer } from '../../src/internal/common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
 import { QuicError } from '../../src/internal/error'
 import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
 import {
@@ -24,7 +24,7 @@ suite('STREAM Frame', function () {
     let streamID = new StreamID(1)
     let offset = new Offset(0)
     let data = bufferFromBytes(['abcdefg'])
-    let streamFrame = new StreamFrame(streamID, offset, data, false)
+    let streamFrame = new StreamFrame(streamID, offset).setData(data)
 
     strictEqual(streamFrame.isFIN, false)
     let buf = toBuffer(streamFrame)
@@ -34,12 +34,12 @@ suite('STREAM Frame', function () {
       0x7, 0x0,
       'abcdefg',
     ])))
-    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))
 
     streamID = streamID.nextID()
     offset = new Offset(offset.valueOf() + data.length)
     data = bufferFromBytes(['higklmn'])
-    streamFrame = new StreamFrame(streamID, offset, data, false)
+    streamFrame = new StreamFrame(streamID, offset, false).setData(data)
 
     strictEqual(streamFrame.isFIN, false)
     buf = toBuffer(streamFrame)
@@ -50,12 +50,12 @@ suite('STREAM Frame', function () {
       0x7, 0x0,
       'higklmn',
     ])))
-    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))
 
     streamID = streamID.nextID()
     offset = new Offset(offset.valueOf() + data.length)
     data = bufferFromBytes(['opqrst'])
-    streamFrame = new StreamFrame(streamID, offset, data, false)
+    streamFrame = new StreamFrame(streamID, offset, false).setData(data)
 
     strictEqual(streamFrame.isFIN, false)
     buf = toBuffer(streamFrame)
@@ -66,12 +66,12 @@ suite('STREAM Frame', function () {
       0x6, 0x0,
       'opqrst',
     ])))
-    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))
 
     streamID = streamID.nextID()
     offset = new Offset(offset.valueOf() + data.length)
     data = bufferFromBytes(['uvwxyz'])
-    streamFrame = new StreamFrame(streamID, offset, data, true)
+    streamFrame = new StreamFrame(streamID, offset, true).setData(data)
 
     strictEqual(streamFrame.isFIN, true)
     buf = toBuffer(streamFrame)
@@ -82,33 +82,33 @@ suite('STREAM Frame', function () {
       0x6, 0x0,
       'uvwxyz',
     ])))
-    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(buf))))
+    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))
   })
 
   it('parse with parseFrame', function () {
     const streamID = new StreamID(1)
     const offset = new Offset(0)
     const data = bufferFromBytes(['abcd'])
-    const streamFrame = new StreamFrame(streamID, offset, data, false)
+    const streamFrame = new StreamFrame(streamID, offset, false).setData(data)
     const buf = toBuffer(streamFrame)
 
-    ok(buf.equals(toBuffer(parseFrame(buf, new PacketNumber(1)))))
+    ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))
   })
 
   it('when invalid StreamFrame type', function () {
     const streamID = new StreamID(1)
     const offset = new Offset(0)
     const data = bufferFromBytes(['abcd'])
-    const streamFrame = new StreamFrame(streamID, offset, data, false)
+    const streamFrame = new StreamFrame(streamID, offset, false).setData(data)
     const buf = toBuffer(streamFrame)
 
-    throws(() => StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, 1))), /INVALID_STREAM_DATA/)
-    throws(() => StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, 2))), /INVALID_STREAM_DATA/)
-    throws(() => StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, 3))), /INVALID_STREAM_DATA/)
-    throws(() => StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, 4))), /INVALID_STREAM_DATA/)
-    throws(() => StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, 5))), /INVALID_STREAM_DATA/)
-    throws(() => StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, 6))), /INVALID_STREAM_DATA/)
-    throws(() => StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, 7))), /INVALID_STREAM_DATA/)
-    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(Visitor.wrap(buf.slice(0, streamFrame.byteLen()))))))
+    throws(() => StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, 1))), /INVALID_STREAM_DATA/)
+    throws(() => StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, 2))), /INVALID_STREAM_DATA/)
+    throws(() => StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, 3))), /INVALID_STREAM_DATA/)
+    throws(() => StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, 4))), /INVALID_STREAM_DATA/)
+    throws(() => StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, 5))), /INVALID_STREAM_DATA/)
+    throws(() => StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, 6))), /INVALID_STREAM_DATA/)
+    throws(() => StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, 7))), /INVALID_STREAM_DATA/)
+    ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf.slice(0, streamFrame.byteLen()))))))
   })
 })
