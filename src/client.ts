@@ -29,6 +29,7 @@ import { createSocket, AddressInfo, Socket } from './socket'
 import { Session } from './session'
 
 const debug = debuglog('quic')
+// const _SCFGCache = new Map<string, {}>()
 
 //
 // *************** Client ***************
@@ -161,8 +162,10 @@ export class Client extends Session {
 }
 
 export class ClientState {
+  hostname: string
   receivedNegotiationPacket: boolean
   constructor () {
+    this.hostname = ''
     this.receivedNegotiationPacket = false
   }
 }

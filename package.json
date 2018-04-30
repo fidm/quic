@@ -4,7 +4,7 @@
   "authors": [
     "Yan Qing <admin@zensh.com>"
   ],
-  "version": "0.4.0",
+  "version": "0.4.1",
   "main": "dist/index.js",
   "license": "MIT",
   "repository": {
@@ -20,8 +20,9 @@
     "udp"
   ],
   "devDependencies": {
-    "@types/node": "^9.6.6",
+    "@types/node": "^10.0.0",
     "ilog": "^1.2.3",
+    "node-forge": "^0.7.5",
     "thunks": "^4.9.2",
     "tman": "^1.7.4",
     "ts-node": "^5.0.1",
@@ -39,5 +40,8 @@
     "LICENSE",
     "README.md",
     "CHANGELOG.md"
-  ]
+  ],
+  "dependencies": {
+    "@sindresorhus/fnv1a": "^1.0.0"
+  }
 }

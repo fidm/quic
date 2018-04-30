@@ -28,7 +28,7 @@ suite('BLOCKED Frame', function () {
     const buf = toBuffer(blockedFrame)
     ok(buf.equals(bufferFromBytes([
       0x05,
-      0x0a, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x0a,
     ])))
     ok(buf.equals(toBuffer(BlockedFrame.fromBuffer(new BufferVisitor(buf)))))
   })
@@ -41,7 +41,7 @@ suite('BLOCKED Frame', function () {
     const buf = toBuffer(blockedFrame)
     ok(buf.equals(bufferFromBytes([
       0x05,
-      0x0a, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x0a,
     ])))
     ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))
   })

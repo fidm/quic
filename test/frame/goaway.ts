@@ -30,7 +30,7 @@ suite('GOAWAY Frame', function () {
     ok(buf.equals(bufferFromBytes([
       0x03,
       0x00, 0x00, 0x00, 0x00,
-      0x07, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x07,
       0x00, 0x00,
     ])))
     ok(buf.equals(toBuffer(GoAwayFrame.fromBuffer(new BufferVisitor(buf)))))
@@ -45,9 +45,9 @@ suite('GOAWAY Frame', function () {
     const buf = toBuffer(goAwayFrame)
     ok(buf.equals(bufferFromBytes([
       0x03,
-      0x01, 0x00, 0x00, 0x00,
-      0x07, 0x00, 0x00, 0x00,
-      0x28, 0x00,
+      0x00, 0x00, 0x00, 0x01,
+      0x00, 0x00, 0x00, 0x07,
+      0x00, 0x28,
       'Connection has reached an invalid state.',
     ])))
     ok(buf.equals(toBuffer(GoAwayFrame.fromBuffer(new BufferVisitor(buf)))))
@@ -62,9 +62,9 @@ suite('GOAWAY Frame', function () {
     const buf = toBuffer(goAwayFrame)
     ok(buf.equals(bufferFromBytes([
       0x03,
-      0x01, 0x00, 0x00, 0x00,
-      0x07, 0x00, 0x00, 0x00,
-      0x28, 0x00,
+      0x00, 0x00, 0x00, 0x01,
+      0x00, 0x00, 0x00, 0x07,
+      0x00, 0x28,
       'Connection has reached an invalid state.',
     ])))
     ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))

@@ -74,7 +74,7 @@ const Float16MantissaEffectiveValue = 1 << Float16MantissaEffectiveBits
 export const Float16MaxValue = 0x3FFC0000000
 
 export function readUFloat16 (buf: Buffer, offset: number = 0): number {
-  let value = buf.readUInt16LE(offset)
+  let value = buf.readUInt16BE(offset)
   if (value < Float16MantissaEffectiveValue) {
     return value
   }
@@ -102,37 +102,37 @@ export function writeUFloat16 (buf: Buffer, value: number, offset: number): Buff
     }
     res = Math.floor(value) + (exponent << Float16MantissaBits)
   }
-  buf.writeUInt16LE(res, offset)
+  buf.writeUInt16BE(res, offset)
   return buf
 }
 
 const unsafeUIntRadix = 0xffffffffffff + 1
-export function readUnsafeUIntLE (buf: Buffer, offset: number, len: number): number {
+export function readUnsafeUInt (buf: Buffer, offset: number, len: number): number {
   let val = 0
   if (len > 6) {
-    val = buf.readUIntLE(offset, 6)
-    const high = buf.readUIntLE(offset + 6, len - 6)
+    val = buf.readUIntBE(offset + len - 6, 6)
+    const high = buf.readUIntBE(offset, len - 6)
     if (high > 0) {
       val += high * unsafeUIntRadix
     }
   } else if (len > 0) {
-    val = buf.readUIntLE(offset, len)
+    val = buf.readUIntBE(offset, len)
   }
   return val
 }
 
-export function writeUnsafeUIntLE (buf: Buffer, val: number, offset: number, len: number): Buffer {
+export function writeUnsafeUInt (buf: Buffer, val: number, offset: number, len: number): Buffer {
   if (len > 6) {
     if (val <= 0xffffffffffff) {
-      buf.writeUIntLE(val, offset, 6)
-      buf.writeUIntLE(0, offset + 6, len - 6) // clear cached bits
+      buf.writeUIntBE(val, offset + len - 6, 6)
+      buf.writeUIntBE(0, offset, len - 6) // clear cached bits
     } else {
       const high = Math.floor(val / unsafeUIntRadix)
-      buf.writeUIntLE(val - high * unsafeUIntRadix, offset, 6)
-      buf.writeUIntLE(high, offset + 6, len - 6)
+      buf.writeUIntBE(val - high * unsafeUIntRadix, offset + len - 6, 6)
+      buf.writeUIntBE(high, offset, len - 6)
     }
   } else if (len > 0) {
-    buf.writeUIntLE(val, offset, len)
+    buf.writeUIntBE(val, offset, len)
   }
   return buf
 }

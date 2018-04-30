@@ -42,8 +42,8 @@ suite('CONNECTION_CLOSE frame', function () {
     const buf = toBuffer(connectionCloseFrame)
     ok(buf.equals(bufferFromBytes([
       0x02,
-      0x01, 0x00, 0x00, 0x00,
-      0x28, 0x00,
+      0x00, 0x00, 0x00, 0x01,
+      0x00, 0x28,
       'Connection has reached an invalid state.',
     ])))
     ok(buf.equals(toBuffer(ConnectionCloseFrame.fromBuffer(new BufferVisitor(buf)))))
@@ -57,8 +57,8 @@ suite('CONNECTION_CLOSE frame', function () {
     const buf = toBuffer(connectionCloseFrame)
     ok(buf.equals(bufferFromBytes([
       0x02,
-      0x01, 0x00, 0x00, 0x00,
-      0x28, 0x00,
+      0x00, 0x00, 0x00, 0x01,
+      0x00, 0x28,
       'Connection has reached an invalid state.',
     ])))
     ok(buf.equals(toBuffer(parseFrame(new BufferVisitor(buf), new PacketNumber(1)))))

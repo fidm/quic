@@ -170,7 +170,7 @@ export class StreamFrame extends Frame {
       if (bufv.isOutside()) {
         throw new QuicError('QUIC_INVALID_STREAM_DATA')
       }
-      const len = bufv.buf.readUInt16LE(bufv.start)
+      const len = bufv.buf.readUInt16BE(bufv.start)
       if (len > 0) {
         bufv.walk(len)
         if (bufv.isOutside()) {
@@ -254,7 +254,7 @@ export class StreamFrame extends Frame {
 
     if (this.data != null) {
       bufv.walk(2)
-      bufv.buf.writeUInt16LE(this.data.length, bufv.start)
+      bufv.buf.writeUInt16BE(this.data.length, bufv.start)
       bufv.walk(this.data.length)
       this.data.copy(bufv.buf, bufv.start, 0, this.data.length)
     }
@@ -388,7 +388,7 @@ export class AckFrame extends Frame {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
-    let ackBlockLength = bufv.buf.readUIntLE(bufv.start, missingNumberDeltaLen)
+    let ackBlockLength = bufv.buf.readUIntBE(bufv.start, missingNumberDeltaLen)
     if ((frame.largestAcked > 0 && ackBlockLength < 1) || ackBlockLength > frame.largestAcked) {
       throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
@@ -410,7 +410,7 @@ export class AckFrame extends Frame {
         if (bufv.isOutside()) {
           throw new QuicError('QUIC_INVALID_ACK_DATA')
         }
-        ackBlockLength = bufv.buf.readUIntLE(bufv.start, missingNumberDeltaLen)
+        ackBlockLength = bufv.buf.readUIntBE(bufv.start, missingNumberDeltaLen)
 
         const lastAckRange = frame.ackRanges[frame.ackRanges.length - 1]
         if (inLongBlock) {
@@ -464,7 +464,7 @@ export class AckFrame extends Frame {
       if (bufv.isOutside()) {
         throw new QuicError('QUIC_INVALID_ACK_DATA')
       }
-      // buf.readUInt32LE(v.start)
+      // buf.readUInt32BE(v.start)
 
       for (let i = 0; i < numTimestamp - 1; i++) {
         // Delta Largest acked
@@ -478,7 +478,7 @@ export class AckFrame extends Frame {
         if (bufv.isOutside()) {
           throw new QuicError('QUIC_INVALID_ACK_DATA')
         }
-        // buf.readUInt16LE(v.start)
+        // buf.readUInt16BE(v.start)
       }
     }
     return frame
@@ -600,6 +600,10 @@ export class AckFrame extends Frame {
     return 3
   }
 
+  setDelay () {
+    this.delayTime = (Date.now() - this.largestAckedTime) * 1000 // microsecond
+  }
+
   acksPacket (val: number): boolean {
     if (val < this.lowestAcked || val > this.largestAcked) {
       return false
@@ -659,9 +663,6 @@ export class AckFrame extends Frame {
     bufv.buf.writeUInt8(this.type, bufv.start)
     largestAckedNum.writeTo(bufv)
 
-    if (this.delayTime === 0) {
-      this.delayTime = (Date.now() - this.largestAckedTime) * 1000 // microsecond
-    }
     bufv.walk(2)
     writeUFloat16(bufv.buf, this.delayTime, bufv.start)
 
@@ -690,7 +691,7 @@ export class AckFrame extends Frame {
     }
 
     bufv.walk(missingNumberDeltaLen)
-    bufv.buf.writeUIntLE(firstAckBlockLength, bufv.start, missingNumberDeltaLen)
+    bufv.buf.writeUIntBE(firstAckBlockLength, bufv.start, missingNumberDeltaLen)
 
     for (let i = 1, l = this.ackRanges.length; i < l; i++) {
       const length = this.ackRanges[i].len()
@@ -705,7 +706,7 @@ export class AckFrame extends Frame {
         bufv.walk(1)
         bufv.buf.writeUInt8(gap, bufv.start)
         bufv.walk(missingNumberDeltaLen)
-        bufv.buf.writeUIntLE(length, bufv.start, missingNumberDeltaLen)
+        bufv.buf.writeUIntBE(length, bufv.start, missingNumberDeltaLen)
         numRangesWritten++
       } else {
         for (let j = 0; j < num; j++) {
@@ -723,7 +724,7 @@ export class AckFrame extends Frame {
           bufv.walk(1)
           bufv.buf.writeUInt8(gapWritten, bufv.start)
           bufv.walk(missingNumberDeltaLen)
-          bufv.buf.writeUIntLE(lengthWritten, bufv.start, missingNumberDeltaLen)
+          bufv.buf.writeUIntBE(lengthWritten, bufv.start, missingNumberDeltaLen)
           numRangesWritten++
         }
       }
@@ -775,7 +776,7 @@ export class StopWaitingFrame extends Frame {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
     }
-    const delta = bufv.buf.readIntLE(bufv.start, len, false)
+    const delta = bufv.buf.readIntBE(bufv.start, len, false)
     return new StopWaitingFrame(packetNumber, packetNumber.valueOf() - delta)
   }
 
@@ -805,7 +806,7 @@ export class StopWaitingFrame extends Frame {
     bufv.walk(1)
     bufv.buf.writeUInt8(this.type, bufv.start)
     bufv.walk(len)
-    bufv.buf.writeUIntLE(this.packetNumber.valueOf() - this.leastUnacked, bufv.start, len)
+    bufv.buf.writeUIntBE(this.packetNumber.valueOf() - this.leastUnacked, bufv.start, len)
     return bufv
   }
 }
@@ -1112,7 +1113,7 @@ export class ConnectionCloseFrame extends Frame {
     }
     const error = QuicError.fromBuffer(bufv)
     bufv.walk(2)
-    const reasonPhraseLen = bufv.buf.readUInt16LE(bufv.start)
+    const reasonPhraseLen = bufv.buf.readUInt16BE(bufv.start)
     if (reasonPhraseLen > 0) {
       bufv.walk(reasonPhraseLen)
       if (bufv.isOutside()) {
@@ -1150,7 +1151,7 @@ export class ConnectionCloseFrame extends Frame {
     bufv.buf.writeUInt8(this.type, bufv.start)
     this.error.writeTo(bufv)
     bufv.walk(2)
-    bufv.buf.writeUInt16LE(reasonPhraseLen, bufv.start)
+    bufv.buf.writeUInt16BE(reasonPhraseLen, bufv.start)
     if (reasonPhrase !== '') {
       bufv.walk(reasonPhraseLen)
       bufv.buf.write(reasonPhrase, bufv.start, reasonPhraseLen)
@@ -1198,7 +1199,7 @@ export class GoAwayFrame extends Frame {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
     }
-    const reasonPhraseLen = bufv.buf.readUInt16LE(bufv.start)
+    const reasonPhraseLen = bufv.buf.readUInt16BE(bufv.start)
     if (reasonPhraseLen > 0) {
       bufv.walk(reasonPhraseLen)
       if (bufv.isOutside()) {
@@ -1241,7 +1242,7 @@ export class GoAwayFrame extends Frame {
     this.error.writeTo(bufv)
     this.streamID.writeTo(bufv, true)
     bufv.walk(2)
-    bufv.buf.writeUInt16LE(reasonPhraseLen, bufv.start)
+    bufv.buf.writeUInt16BE(reasonPhraseLen, bufv.start)
     if (reasonPhrase !== '') {
       bufv.walk(reasonPhraseLen)
       bufv.buf.write(reasonPhrase, bufv.start, reasonPhraseLen)

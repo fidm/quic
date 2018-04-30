@@ -14,7 +14,8 @@ import {
   ConnectionID,
   PacketNumber,
   SocketAddress,
-  QuicTag,
+  Tag,
+  QuicTags,
   SessionType,
 } from './protocol'
 
@@ -83,7 +84,7 @@ import {
 
 export function parsePacket (bufv: BufferVisitor, packetSentBy: SessionType): Packet {
   bufv.walk(0) // align start and end
-  const flag = bufv.buf.readUIntLE(bufv.start, 1)
+  const flag = bufv.buf.readUInt8(bufv.start)
 
   // 0x80, currently unused
   if (flag >= 127) {
@@ -104,12 +105,12 @@ export function parsePacket (bufv: BufferVisitor, packetSentBy: SessionType): Pa
     return NegotiationPacket.fromBuffer(bufv)
   }
 
-  return RegularPacket.fromBuffer(bufv, flag)
+  return RegularPacket.fromBuffer(bufv, flag, packetSentBy)
 }
 
 /** Packet representing a base Packet. */
 export abstract class Packet {
-  static fromBuffer (_bufv: BufferVisitor, _flag?: number): Packet {
+  static fromBuffer (_bufv: BufferVisitor, _flag?: number, _packetSentBy?: SessionType): Packet {
     throw new Error(`class method "fromBuffer" is not implemented`)
   }
 
@@ -170,8 +171,8 @@ export class ResetPacket extends Packet {
   static fromBuffer (bufv: BufferVisitor): ResetPacket {
     bufv.walk(1) // flag
     const connectionID = ConnectionID.fromBuffer(bufv)
-    const quicTag = QuicTag.fromBuffer(bufv)
-    if (quicTag.name !== 'PRST' || quicTag.keys[0] !== 'RNON') {
+    const quicTag = QuicTags.fromBuffer(bufv)
+    if (quicTag.name !== Tag.PRST || !quicTag.has(Tag.RNON)) {
       throw new QuicError('QUIC_INVALID_PUBLIC_RST_PACKET')
     }
     return new ResetPacket(connectionID, quicTag)
@@ -180,24 +181,24 @@ export class ResetPacket extends Packet {
   nonceProof: Buffer
   packetNumber: PacketNumber | null
   socketAddress: SocketAddress | null
-  tags: QuicTag
-  constructor (connectionID: ConnectionID, tags: QuicTag) {
+  tags: QuicTags
+  constructor (connectionID: ConnectionID, tags: QuicTags) {
     super(connectionID, 0b00001010)
 
     this.tags = tags
     this.packetNumber = null
     this.socketAddress = null
 
-    const nonceProof = tags.getTag('RNON')
+    const nonceProof = tags.get(Tag.RNON)
     if (nonceProof == null) {
       throw new QuicError('QUIC_INVALID_PUBLIC_RST_PACKET')
     }
     this.nonceProof = nonceProof
-    const rseq = tags.getTag('RSEQ')
+    const rseq = tags.get(Tag.RSEQ)
     if (rseq != null) {
       this.packetNumber = PacketNumber.fromBuffer(new BufferVisitor(rseq), rseq.length)
     }
-    const cadr = tags.getTag('CADR')
+    const cadr = tags.get(Tag.CADR)
     if (cadr != null) {
       this.socketAddress = SocketAddress.fromBuffer(new BufferVisitor(cadr))
     }
@@ -295,7 +296,7 @@ export class RegularPacket extends Packet {
   // +--------+---...---+--------+---...---+
   // | Type   | Payload | Type   | Payload |
   // +--------+---...---+--------+---...---+
-  static fromBuffer (bufv: BufferVisitor, flag: number): RegularPacket {
+  static fromBuffer (bufv: BufferVisitor, flag: number, packetSentBy: SessionType): RegularPacket {
     bufv.walk(1) // flag
     const connectionID = ConnectionID.fromBuffer(bufv)
 
@@ -309,8 +310,11 @@ export class RegularPacket extends Packet {
       }
     }
 
+    // Contrary to what the gQUIC wire spec says, the 0x4 bit only indicates the presence of
+    // the diversification nonce for packets sent by the server.
+    // It doesn't have any meaning when sent by the client.
     let nonce = null
-    if ((flag & 0b100) > 0) {
+    if (packetSentBy === SessionType.SERVER && (flag & 0b100) > 0) {
       bufv.walk(32)
       nonce = bufv.buf.slice(bufv.start, bufv.end)
       if (nonce.length !== 32) {
@@ -323,10 +327,6 @@ export class RegularPacket extends Packet {
     if (version !== '') {
       packet.setVersion(version)
     }
-    while (bufv.end < bufv.length) {
-      packet.addFrames(parseFrame(bufv, packetNumber))
-    }
-
     return packet
   }
 
@@ -379,6 +379,12 @@ export class RegularPacket extends Packet {
       }
     }
     return false
+  }
+
+  parseFrames (bufv: BufferVisitor) {
+    while (bufv.end < bufv.length) {
+      this.addFrames(parseFrame(bufv, this.packetNumber))
+    }
   }
 
   addFrames (...frames: Frame[]): this {

@@ -9,7 +9,7 @@ import { AddressInfo } from 'dgram'
 import { QuicError } from './error'
 
 import { kVal } from './symbol'
-import { Visitor, BufferVisitor, readUnsafeUIntLE, writeUnsafeUIntLE  } from './common'
+import { Visitor, BufferVisitor, readUnsafeUInt, writeUnsafeUInt  } from './common'
 
 const QUIC_VERSIONS = ['Q039']
 
@@ -146,7 +146,7 @@ export class PacketNumber extends Protocol {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INTERNAL_ERROR')
     }
-    return new PacketNumber(bufv.buf.readUIntLE(bufv.start, len))
+    return new PacketNumber(bufv.buf.readUIntBE(bufv.start, len))
   }
 
   constructor (val: number) {
@@ -213,7 +213,7 @@ export class PacketNumber extends Protocol {
   writeTo (bufv: BufferVisitor, isFull: boolean = false): BufferVisitor {
     const len = isFull ? 6 : this.byteLen()
     bufv.walk(len)
-    bufv.buf.writeUIntLE(this[kVal], bufv.start, len)
+    bufv.buf.writeUIntBE(this[kVal], bufv.start, len)
     return bufv
   }
 
@@ -243,7 +243,7 @@ export class StreamID extends Protocol {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INVALID_STREAM_DATA')
     }
-    return new StreamID(bufv.buf.readUIntLE(bufv.start, len))
+    return new StreamID(bufv.buf.readUIntBE(bufv.start, len))
   }
 
   constructor (id: number) {
@@ -292,7 +292,7 @@ export class StreamID extends Protocol {
   writeTo (bufv: BufferVisitor, isFull: boolean = false): BufferVisitor {
     const len = isFull ? 4 : this.byteLen()
     bufv.walk(len)
-    bufv.buf.writeUIntLE(this[kVal], bufv.start, len)
+    bufv.buf.writeUIntBE(this[kVal], bufv.start, len)
     return bufv
   }
 
@@ -318,7 +318,7 @@ export class Offset extends Protocol {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INTERNAL_ERROR')
     }
-    return new Offset(readUnsafeUIntLE(bufv.buf, bufv.start, len))
+    return new Offset(readUnsafeUInt(bufv.buf, bufv.start, len))
   }
 
   constructor (offset: number) {
@@ -378,7 +378,7 @@ export class Offset extends Protocol {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INTERNAL_ERROR')
     }
-    writeUnsafeUIntLE(bufv.buf, this[kVal], bufv.start, len)
+    writeUnsafeUInt(bufv.buf, this[kVal], bufv.start, len)
     return bufv
   }
 
@@ -400,7 +400,7 @@ export class SocketAddress extends Protocol {
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INTERNAL_ERROR')
     }
-    const family = bufv.buf.readUInt16LE(bufv.start)
+    const family = bufv.buf.readUInt16BE(bufv.start)
     if (family === 0x02) {
       obj.family = FamilyType.IPv4
       bufv.walk(4)
@@ -417,7 +417,7 @@ export class SocketAddress extends Protocol {
       if (bufv.isOutside()) {
         throw new QuicError('QUIC_INTERNAL_ERROR')
       }
-      obj.port = bufv.buf.readUInt16LE(bufv.start)
+      obj.port = bufv.buf.readUInt16BE(bufv.start)
     } else if (family === 0x0a) {
       obj.family = FamilyType.IPv6
       bufv.walk(16)
@@ -438,7 +438,7 @@ export class SocketAddress extends Protocol {
       if (bufv.isOutside()) {
         throw new QuicError('QUIC_INTERNAL_ERROR')
       }
-      obj.port = bufv.buf.readUInt16LE(bufv.start)
+      obj.port = bufv.buf.readUInt16BE(bufv.start)
     } else {
       throw new Error('invalid SocketAddress buffer')
     }
@@ -496,22 +496,22 @@ export class SocketAddress extends Protocol {
     const address = this.address
     if (this.family === FamilyType.IPv4) {
       bufv.walk(2)
-      bufv.buf.writeUInt16LE(0x02, bufv.start)
+      bufv.buf.writeUInt16BE(0x02, bufv.start)
       for (const val of address.split('.')) {
         bufv.walk(1)
         bufv.buf.writeUInt8(parseInt(val, 10), bufv.start)
       }
       bufv.walk(2)
-      bufv.buf.writeUInt16LE(this.port, bufv.start)
+      bufv.buf.writeUInt16BE(this.port, bufv.start)
     } else {
       bufv.walk(2)
-      bufv.buf.writeUInt16LE(0x0a, bufv.start)
+      bufv.buf.writeUInt16BE(0x0a, bufv.start)
       for (const val of address.split(':')) {
         bufv.walk(2)
         bufv.buf.writeUInt16BE(parseInt(val, 16), bufv.start)
       }
       bufv.walk(2)
-      bufv.buf.writeUInt16LE(this.port, bufv.start)
+      bufv.buf.writeUInt16BE(this.port, bufv.start)
     }
     return bufv
   }
@@ -521,17 +521,17 @@ export class SocketAddress extends Protocol {
   }
 }
 
-/** QuicTag representing a QUIC tag. */
-export class QuicTag extends Protocol {
-  static fromBuffer (bufv: BufferVisitor): QuicTag {
+/** QuicTags representing a QUIC tag. */
+export class QuicTags extends Protocol {
+  static fromBuffer (bufv: BufferVisitor): QuicTags {
     bufv.walk(4)
-    const name = bufv.buf.toString('utf8', bufv.start, bufv.end)
-    const quicTag = new QuicTag(name)
+    const tagName = bufv.buf.readUInt32BE(bufv.start)
+    const quicTag = new QuicTags(tagName)
     bufv.walk(4)
     if (bufv.isOutside()) {
       throw new QuicError('QUIC_INTERNAL_ERROR')
     }
-    let count = bufv.buf.readInt32LE(bufv.start)
+    let count = bufv.buf.readInt16LE(bufv.start)
 
     const baseOffset = bufv.end + 8 * count
     const v2 = new Visitor(baseOffset)
@@ -540,7 +540,7 @@ export class QuicTag extends Protocol {
       if (bufv.isOutside()) {
         throw new QuicError('QUIC_INTERNAL_ERROR')
       }
-      const key = bufv.buf.toString('utf8', bufv.start, bufv.end)
+      const key = bufv.buf.readInt32BE(bufv.start)
       bufv.walk(4)
       v2.walk(0)
       if (bufv.isOutside()) {
@@ -551,53 +551,59 @@ export class QuicTag extends Protocol {
         throw new QuicError('QUIC_INTERNAL_ERROR')
       }
       const val = bufv.buf.slice(v2.start, v2.end)
-      quicTag.setTag(key, val)
+      quicTag.set(key, val)
     }
     bufv.reset(v2.end, v2.end)
     return quicTag
   }
 
-  name: string
-  keys: string[]
-  tags: Map<string, Buffer>
-  constructor (name: string) {
+  name: Tag
+  tags: Map<Tag, Buffer>
+  constructor (name: Tag) {
     super(name)
     this.name = name
-    this.keys = []
     this.tags = new Map()
   }
 
   valueOf () {
+    const tags: any = {}
+    for (const [key, value] of this.tags) {
+      tags[Tag[key]] = value
+    }
     return {
-      keys: this.keys,
-      name: this.name,
-      tags: this.tags,
+      name: Tag[this.name],
+      tags,
     }
   }
 
-  setTag (key: string, val: Buffer): void {
-    if (!this.keys.includes(key)) {
-      this.keys.push(key)
-    }
-    this.tags.set(key, val)
-  }
-
-  getTag (key: string): Buffer | undefined {
-    return this.tags.get(key)
+  get size (): number {
+    return this.tags.size
   }
 
   [Symbol.iterator] () {
     return this.tags[Symbol.iterator]()
   }
 
-  equals (other: QuicTag): boolean {
-    if (!(other instanceof QuicTag)) {
+  set (key: Tag, val: Buffer): void {
+    this.tags.set(key, val)
+  }
+
+  get (key: Tag): Buffer | undefined {
+    return this.tags.get(key)
+  }
+
+  has (key: Tag): boolean {
+    return this.tags.has(key)
+  }
+
+  equals (other: QuicTags): boolean {
+    if (!(other instanceof QuicTags)) {
       return false
     }
-    if (this.name !== other.name || this.keys.length !== other.keys.length) {
+    if (this.name !== other.name || this.tags.size !== other.tags.size) {
       return false
     }
-    for (const key of this.keys) {
+    for (const key of this.tags.keys()) {
       const a = this.tags.get(key)
       const b = other.tags.get(key)
       if (a == null || b == null || !a.equals(b)) {
@@ -617,20 +623,23 @@ export class QuicTag extends Protocol {
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
     bufv.walk(4)
-    bufv.buf.write(this.name, bufv.start, 4)
+    bufv.buf.writeUInt32BE(this.name, bufv.start)
     bufv.walk(4)
     const size = this.tags.size
-    bufv.buf.writeUInt32LE(size, bufv.start)
+    bufv.buf.writeUInt16LE(size, bufv.start)
+    bufv.buf.writeUInt16LE(0, bufv.start + 2)
 
     let baseOffset = 0
     const v = new Visitor(bufv.end + 8 * size)
-    for (const key of this.keys) {
+    const keys = Array.from(this.tags.keys())
+    keys.sort((a, b) => a - b)
+    for (const key of keys) {
       const val = this.tags.get(key)
       if (val == null) {
         throw new QuicError('QUIC_INTERNAL_ERROR')
       }
       bufv.walk(4)
-      bufv.buf.write(key, bufv.start, 4)
+      bufv.buf.writeUInt32BE(key, bufv.start)
       bufv.walk(4)
       baseOffset += val.length
       bufv.buf.writeUInt32LE(baseOffset, bufv.start)
@@ -644,6 +653,200 @@ export class QuicTag extends Protocol {
   toString (): string {
     return JSON.stringify(this.valueOf())
   }
+}
+
+export enum Tag {
+  CHLO = toTag('C', 'H', 'L', 'O'), // Client hello
+  SHLO = toTag('S', 'H', 'L', 'O'), // Server hello
+  SCFG = toTag('S', 'C', 'F', 'G'), // Server config
+  REJ  = toTag('R', 'E', 'J', '\u{0}'),  // Reject
+  SREJ = toTag('S', 'R', 'E', 'J'), // Stateless reject
+  CETV = toTag('C', 'E', 'T', 'V'), // Client encrypted tag-value pairs
+  PRST = toTag('P', 'R', 'S', 'T'), // Public reset
+  SCUP = toTag('S', 'C', 'U', 'P'), // Server config update
+  ALPN = toTag('A', 'L', 'P', 'N'), // Application-layer protocol
+
+  // Key exchange methods
+  P256 = toTag('P', '2', '5', '6'), // ECDH, Curve P-256
+  C255 = toTag('C', '2', '5', '5'), // ECDH, Curve25519
+
+  // AEAD algorithms
+  AESG = toTag('A', 'E', 'S', 'G'), // AES128 + GCM-12
+  CC20 = toTag('C', 'C', '2', '0'), // ChaCha20 + Poly1305 RFC7539
+
+  // Socket receive buffer
+  SRBF = toTag('S', 'R', 'B', 'F'), // Socket receive buffer
+
+  // Congestion control feedback types
+  QBIC = toTag('Q', 'B', 'I', 'C'), // TCP cubic
+
+  // Connection options (COPT) values
+  AFCW = toTag('A', 'F', 'C', 'W'), // Auto-tune flow control receive windows.
+  IFW5 = toTag('I', 'F', 'W', '5'), // Set initial size of stream flow control receive window to 32KB. (2^5 KB).
+  IFW6 = toTag('I', 'F', 'W', '6'), // Set initial size of stream flow control receive window to 64KB. (2^6 KB).
+  IFW7 = toTag('I', 'F', 'W', '7'), // Set initial size of stream flow control receive window to 128KB. (2^7 KB).
+  IFW8 = toTag('I', 'F', 'W', '8'), // Set initial size of stream flow control receive window to 256KB. (2^8 KB).
+  IFW9 = toTag('I', 'F', 'W', '9'), // Set initial size of stream flow control receive window to 512KB. (2^9 KB).
+  IFWA = toTag('I', 'F', 'W', 'a'), // Set initial size of stream flow control receive window to 1MB. (2^0xa KB).
+  TBBR = toTag('T', 'B', 'B', 'R'), // Reduced Buffer Bloat TCP
+  '1RTT' = toTag('1', 'R', 'T', 'T'), // STARTUP in BBR for 1 RTT
+  '2RTT' = toTag('2', 'R', 'T', 'T'), // STARTUP in BBR for 2 RTTs
+  LRTT = toTag('L', 'R', 'T', 'T'), // Exit STARTUP in BBR on loss
+  BBRR = toTag('B', 'B', 'R', 'R'), // Rate-based recovery in BBR
+  BBR1 = toTag('B', 'B', 'R', '1'), // Ack aggregatation v1
+  BBR2 = toTag('B', 'B', 'R', '2'), // Ack aggregatation v2
+  RENO = toTag('R', 'E', 'N', 'O'), // Reno Congestion Control
+  TPCC = toTag('P', 'C', 'C', '\u{0}'), // Performance-Oriented Congestion Control
+  BYTE = toTag('B', 'Y', 'T', 'E'), // TCP cubic or reno in bytes
+  IW03 = toTag('I', 'W', '0', '3'), // Force ICWND to 3
+  IW10 = toTag('I', 'W', '1', '0'), // Force ICWND to 10
+  IW20 = toTag('I', 'W', '2', '0'), // Force ICWND to 20
+  IW50 = toTag('I', 'W', '5', '0'), // Force ICWND to 50
+  '1CON' = toTag('1', 'C', 'O', 'N'), // Emulate a single connection
+  NTLP = toTag('N', 'T', 'L', 'P'), // No tail loss probe
+  NCON = toTag('N', 'C', 'O', 'N'), // N Connection Congestion Ctrl
+  NRTO = toTag('N', 'R', 'T', 'O'), // CWND reduction on loss
+  UNDO = toTag('U', 'N', 'D', 'O'), // Undo any pending retransmits if they're likely spurious.
+  TIME = toTag('T', 'I', 'M', 'E'), // Time based loss detection
+  ATIM = toTag('A', 'T', 'I', 'M'), // Adaptive time loss detection
+  MIN1 = toTag('M', 'I', 'N', '1'), // Min CWND of 1 packet
+  MIN4 = toTag('M', 'I', 'N', '4'), // Min CWND of 4 packets, with a min rate of 1 BDP.
+  TLPR = toTag('T', 'L', 'P', 'R'), // Tail loss probe delay of 0.5RTT.
+  ACKD = toTag('A', 'C', 'K', 'D'), // Ack decimation style acking.
+  AKD2 = toTag('A', 'K', 'D', '2'), // Ack decimation tolerating out of order packets.
+  AKD3 = toTag('A', 'K', 'D', '3'), // Ack decimation style acking with 1/8 RTT acks.
+  AKD4 = toTag('A', 'K', 'D', '4'), // Ack decimation with 1/8 RTT tolerating out of order.
+  AKDU = toTag('A', 'K', 'D', 'U'), // Unlimited number of packets receieved before acking
+  SSLR = toTag('S', 'S', 'L', 'R'), // Slow Start Large Reduction.
+  NPRR = toTag('N', 'P', 'R', 'R'), // Pace at unity instead of PRR
+  '5RTO' = toTag('5', 'R', 'T', 'O'), // Close connection on 5 RTOs
+  '3RTO' = toTag('3', 'R', 'T', 'O'), // Close connection on 3 RTOs
+  CTIM = toTag('C', 'T', 'I', 'M'), // Client timestamp in seconds since UNIX epoch.
+  DHDT = toTag('D', 'H', 'D', 'T'), // Disable HPACK dynamic table.
+  CONH = toTag('C', 'O', 'N', 'H'), // Conservative Handshake Retransmissions.
+  LFAK = toTag('L', 'F', 'A', 'K'), // Don't invoke FACK on the first ack.
+  // TODO(fayang): Remove this connection option in QUIC_VERSION_37, in which
+  // MAX_HEADER_LIST_SIZE settings frame should be supported.
+  SMHL = toTag('S', 'M', 'H', 'L'), // Support MAX_HEADER_LIST_SIZE settings frame.
+  CCVX = toTag('C', 'C', 'V', 'X'), // Fix Cubic convex bug.
+  CBQT = toTag('C', 'B', 'Q', 'T'), // Fix CubicBytes quantization.
+  BLMX = toTag('B', 'L', 'M', 'X'), // Fix Cubic BetaLastMax bug.
+  CPAU = toTag('C', 'P', 'A', 'U'), // Allow Cubic per-ack-updates.
+  NSTP = toTag('N', 'S', 'T', 'P'), // No stop waiting frames.
+
+  // Optional support of truncated Connection IDs.  If sent by a peer, the value
+  // is the minimum number of bytes allowed for the connection ID sent to the
+  // peer.
+  TCID = toTag('T', 'C', 'I', 'D'), // Connection ID truncation.
+
+  // Multipath option.
+  MPTH = toTag('M', 'P', 'T', 'H'), // Enable multipath.
+
+  NCMR = toTag('N', 'C', 'M', 'R'), // Do not attempt connection migration.
+
+  // Enable bandwidth resumption experiment.
+  BWRE = toTag('B', 'W', 'R', 'E'),  // Bandwidth resumption.
+  BWMX = toTag('B', 'W', 'M', 'X'),  // Max bandwidth resumption.
+  BWRS = toTag('B', 'W', 'R', 'S'),  // Server bandwidth resumption.
+  BWS2 = toTag('B', 'W', 'S', '2'),  // Server bw resumption v2.
+
+  // Enable path MTU discovery experiment.
+  MTUH = toTag('M', 'T', 'U', 'H'),  // High-target MTU discovery.
+  MTUL = toTag('M', 'T', 'U', 'L'),  // Low-target MTU discovery.
+
+  // Tags for async signing experiments
+  ASYN = toTag('A', 'S', 'Y', 'N'),  // Perform asynchronous signing
+  SYNC = toTag('S', 'Y', 'N', 'C'),  // Perform synchronous signing
+
+  FHL2 = toTag('F', 'H', 'L', '2'), // Force head of line blocking.
+
+  // Proof types (i.e. certificate types)
+  // NOTE: although it would be silly to do so, specifying both kX509 and kX59R
+  // is allowed and is equivalent to specifying only kX509.
+  X509 = toTag('X', '5', '0', '9'), // X.509 certificate, all key types
+  X59R = toTag('X', '5', '9', 'R'), // X.509 certificate, RSA keys only
+  CHID = toTag('C', 'H', 'I', 'D'), // Channel ID.
+
+  // Client hello tags
+  VER  = toTag('V', 'E', 'R', '\u{0}'),  // Version
+  NONC = toTag('N', 'O', 'N', 'C'), // The client's nonce
+  NONP = toTag('N', 'O', 'N', 'P'), // The client's proof nonce
+  KEXS = toTag('K', 'E', 'X', 'S'), // Key exchange methods
+  AEAD = toTag('A', 'E', 'A', 'D'), // Authenticated encryption algorithms
+  COPT = toTag('C', 'O', 'P', 'T'), // Connection options
+  CLOP = toTag('C', 'L', 'O', 'P'), // Client connection options
+  ICSL = toTag('I', 'C', 'S', 'L'), // Idle network timeout
+  SCLS = toTag('S', 'C', 'L', 'S'), // Silently close on timeout
+  MSPC = toTag('M', 'S', 'P', 'C'), // Max streams per connection.
+  MIDS = toTag('M', 'I', 'D', 'S'), // Max incoming dynamic streams
+  IRTT = toTag('I', 'R', 'T', 'T'), // Estimated initial RTT in us.
+  SWND = toTag('S', 'W', 'N', 'D'), // Server's Initial congestion window.
+  SNI  = toTag('S', 'N', 'I', '\u{0}'),  // Server name indication
+  PUBS = toTag('P', 'U', 'B', 'S'), // Public key values
+  SCID = toTag('S', 'C', 'I', 'D'), // Server config id
+  ORBT = toTag('O', 'B', 'I', 'T'), // Server orbit.
+  PDMD = toTag('P', 'D', 'M', 'D'), // Proof demand.
+  PROF = toTag('P', 'R', 'O', 'F'), // Proof (signature).
+  CCS  = toTag('C', 'C', 'S', '\u{0}'),     // Common certificate set
+  CCRT = toTag('C', 'C', 'R', 'T'), // Cached certificate
+  EXPY = toTag('E', 'X', 'P', 'Y'), // Expiry
+  STTL = toTag('S', 'T', 'T', 'L'), // Server Config TTL
+  SFCW = toTag('S', 'F', 'C', 'W'), // Initial stream flow control receive window.
+  CFCW = toTag('C', 'F', 'C', 'W'), // Initial session/connection flow control receive window.
+  UAID = toTag('U', 'A', 'I', 'D'), // Client's User Agent ID.
+  XLCT = toTag('X', 'L', 'C', 'T'), // Expected leaf certificate.
+  TBKP = toTag('T', 'B', 'K', 'P'), // Token Binding key params.
+
+  // Token Binding tags
+  TB10 = toTag('T', 'B', '1', '0'), // TB draft 10 with P256.
+
+  // Rejection tags
+  RREJ = toTag('R', 'R', 'E', 'J'), // Reasons for server sending
+  // Stateless Reject tags
+  RCID = toTag('R', 'C', 'I', 'D'), // Server-designated connection ID
+  // Server hello tags
+  CADR = toTag('C', 'A', 'D', 'R'), // Client IP address and port
+  ASAD = toTag('A', 'S', 'A', 'D'), // Alternate Server IP address and port.
+
+  // CETV tags
+  CIDK = toTag('C', 'I', 'D', 'K'), // ChannelID key
+  CIDS = toTag('C', 'I', 'D', 'S'), // ChannelID signature
+
+  // Public reset tags
+  RNON = toTag('R', 'N', 'O', 'N'), // Public reset nonce proof
+  RSEQ = toTag('R', 'S', 'E', 'Q'), // Rejected packet number
+
+  // Universal tags
+  PAD  = toTag('P', 'A', 'D', '\u{0}'),  // Padding
+
+  // Server push tags
+  SPSH = toTag('S', 'P', 'S', 'H'),  // Support server push.
+
+  // clang-format on
+
+  // These tags have a special form so that they appear either at the beginning
+  // or the end of a handshake message. Since handshake messages are sorted by
+  // tag value, the tags with 0 at the end will sort first and those with 255 at
+  // the end will sort last.
+  //
+  // The certificate chain should have a tag that will cause it to be sorted at
+  // the end of any handshake messages because it's likely to be large and the
+  // client might be able to get everything that it needs from the small values at
+  // the beginning.
+  //
+  // Likewise tags with random values should be towards the beginning of the
+  // message because the server mightn't hold state for a rejected client hello
+  // and therefore the client may have issues reassembling the rejection message
+  // in the event that it sent two client hellos.
+  ServerNonceTag = toTag('S', 'N', 'O', '\u{0}'),  // The server's nonce
+  SourceAddressTokenTag = toTag('S', 'T', 'K', '\u{0}'),  // Source-address token
+  CertificateTag = toTag('C', 'R', 'T', '\u{ff}'),  // Certificate chain
+  CertificateSCTTag = toTag('C', 'S', 'C', 'T'),  // Signed cert timestamp (RFC6962) of leaf cert.
+}
+
+function toTag (a: string, b: string, c: string, d: string): number {
+  return a.charCodeAt(0) * (0xffffff + 1) + b.charCodeAt(0) * (0xffff + 1) +
+    c.charCodeAt(0) * (0xff + 1) + d.charCodeAt(0)
 }
 
 function isAddress (address: AddressInfo): boolean {

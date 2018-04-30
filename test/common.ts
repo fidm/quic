@@ -9,7 +9,7 @@ import { suite, it } from 'tman'
 import { ok, strictEqual } from 'assert'
 
 import { Visitor, BufferVisitor, Float16MaxValue,
-  readUFloat16, writeUFloat16, readUnsafeUIntLE, writeUnsafeUIntLE,
+  readUFloat16, writeUFloat16, readUnsafeUInt, writeUnsafeUInt,
 } from '../src/internal/common'
 
 export function bufferFromBytes (array: any) {
@@ -103,19 +103,19 @@ suite('common', function () {
     const bufv = new BufferVisitor(Buffer.allocUnsafe(10))
     bufv.walk(1)
     bufv.walk(4)
-    writeUnsafeUIntLE(bufv.buf, 0, bufv.start, bufv.end - bufv.start)
+    writeUnsafeUInt(bufv.buf, 0, bufv.start, bufv.end - bufv.start)
     bufv.walk(4)
-    writeUnsafeUIntLE(bufv.buf, 0, bufv.start, bufv.end - bufv.start)
+    writeUnsafeUInt(bufv.buf, 0, bufv.start, bufv.end - bufv.start)
     bufv.reset()
     bufv.walk(1)
     bufv.walk(8)
-    strictEqual(readUnsafeUIntLE(bufv.buf, bufv.start, bufv.end - bufv.start), 0)
+    strictEqual(readUnsafeUInt(bufv.buf, bufv.start, bufv.end - bufv.start), 0)
   })
 
   suite('UFloat16', function () {
     function uint16Buf (val) {
       const buf = Buffer.alloc(2)
-      buf.writeUInt16LE(val, 0)
+      buf.writeUInt16BE(val, 0)
       return buf
     }
 
@@ -243,58 +243,58 @@ suite('common', function () {
     })
   })
 
-  suite('UnsafeUIntLE', function () {
+  suite('UnsafeUInt', function () {
     it('should work', function () {
       let buf = bufferFromBytes([0x1])
-      let val = readUnsafeUIntLE(buf, 0, 1)
+      let val = readUnsafeUInt(buf, 0, 1)
       strictEqual(val, 1)
-      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(1), val, 0, 1)))
+      ok(buf.equals(writeUnsafeUInt(Buffer.allocUnsafe(1), val, 0, 1)))
 
-      buf = bufferFromBytes([0x1, 0x0])
-      val = readUnsafeUIntLE(buf, 0, 2)
+      buf = bufferFromBytes([0x0, 0x1])
+      val = readUnsafeUInt(buf, 0, 2)
       strictEqual(val, 1)
-      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(2), val, 0, 2)))
+      ok(buf.equals(writeUnsafeUInt(Buffer.allocUnsafe(2), val, 0, 2)))
 
-      buf = bufferFromBytes([0x1, 0x0, 0x0])
-      val = readUnsafeUIntLE(buf, 0, 3)
+      buf = bufferFromBytes([0x0, 0x0, 0x1])
+      val = readUnsafeUInt(buf, 0, 3)
       strictEqual(val, 1)
-      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(3), val, 0, 3)))
+      ok(buf.equals(writeUnsafeUInt(Buffer.allocUnsafe(3), val, 0, 3)))
 
-      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0])
-      val = readUnsafeUIntLE(buf, 0, 6)
+      buf = bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x0, 0x1])
+      val = readUnsafeUInt(buf, 0, 6)
       strictEqual(val, 1)
-      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(6), val, 0, 6)))
+      ok(buf.equals(writeUnsafeUInt(Buffer.allocUnsafe(6), val, 0, 6)))
 
-      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
-      val = readUnsafeUIntLE(buf, 0, 7)
+      buf = bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1])
+      val = readUnsafeUInt(buf, 0, 7)
       strictEqual(val, 1)
-      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(7), val, 0, 7)))
+      ok(buf.equals(writeUnsafeUInt(Buffer.allocUnsafe(7), val, 0, 7)))
 
-      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
-      val = readUnsafeUIntLE(buf, 0, 8)
+      buf = bufferFromBytes([0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1])
+      val = readUnsafeUInt(buf, 0, 8)
       strictEqual(val, 1)
-      ok(buf.equals(writeUnsafeUIntLE(Buffer.allocUnsafe(8), val, 0, 8)))
+      ok(buf.equals(writeUnsafeUInt(Buffer.allocUnsafe(8), val, 0, 8)))
 
-      buf = bufferFromBytes([0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0])
-      strictEqual(readUnsafeUIntLE(buf, 1, 6), 1)
+      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1])
+      strictEqual(readUnsafeUInt(buf, 1, 6), 1)
 
-      buf = bufferFromBytes([0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
-      strictEqual(readUnsafeUIntLE(buf, 1, 7), 1)
+      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1])
+      strictEqual(readUnsafeUInt(buf, 1, 7), 1)
 
-      buf = bufferFromBytes([0x1, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0])
-      strictEqual(readUnsafeUIntLE(buf, 1, 8), 1)
+      buf = bufferFromBytes([0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1])
+      strictEqual(readUnsafeUInt(buf, 1, 8), 1)
     })
 
     it('should work for Number.MAX_SAFE_INTEGER', function () {
       const val = Number.MAX_SAFE_INTEGER
-      let buf = writeUnsafeUIntLE(Buffer.allocUnsafe(7), val, 0, 7)
-      strictEqual(readUnsafeUIntLE(buf, 0, 7), val)
+      let buf = writeUnsafeUInt(Buffer.allocUnsafe(7), val, 0, 7)
+      strictEqual(readUnsafeUInt(buf, 0, 7), val)
 
-      buf = writeUnsafeUIntLE(Buffer.allocUnsafe(8), val, 0, 8)
-      strictEqual(readUnsafeUIntLE(buf, 0, 8), val)
+      buf = writeUnsafeUInt(Buffer.allocUnsafe(8), val, 0, 8)
+      strictEqual(readUnsafeUInt(buf, 0, 8), val)
 
-      buf = writeUnsafeUIntLE(Buffer.allocUnsafe(8), val, 1, 7)
-      strictEqual(readUnsafeUIntLE(buf, 1, 7), val)
+      buf = writeUnsafeUInt(Buffer.allocUnsafe(8), val, 1, 7)
+      strictEqual(readUnsafeUInt(buf, 1, 7), val)
     })
   })
 })

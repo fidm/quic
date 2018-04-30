@@ -30,7 +30,7 @@ suite('QUIC errors', function () {
     strictEqual(err.name, 'QUIC_INTERNAL_ERROR')
     strictEqual(err.message, 'Connection has reached an invalid state.')
     ok(err.stack.includes(join('test', 'error.ts')))
-    ok(toBuffer(err).equals(bufferFromBytes([0x1, 0x0, 0x0, 0x0])))
+    ok(toBuffer(err).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x1])))
     deepEqual(err, new QuicError('QUIC_INTERNAL_ERROR'))
   })
 
@@ -45,7 +45,7 @@ suite('QUIC errors', function () {
 
   it('QuicError.fromBuffer', function () {
     strictEqual(QuicError.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x0, 0x0]))).name, 'QUIC_NO_ERROR')
-    let err = QuicError.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x0, 0x0, 0x0])))
+    let err = QuicError.fromBuffer(new BufferVisitor(bufferFromBytes([0x0, 0x0, 0x0, 0x1])))
     deepEqual(err, new QuicError(1))
 
     err = QuicError.fromBuffer(new BufferVisitor(bufferFromBytes([0x1, 0x1, 0x1, 0x1])))

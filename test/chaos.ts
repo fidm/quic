@@ -243,7 +243,7 @@ suite('chaos testing', function () {
   })
 
   suite('echo rand readable stream when packets loss and out of order', function () {
-    for (const i of [1, 2, 3, 4, 5]) {
+    for (const i of [1, 2, 3, 4]) {
       // random stream & hash stream --(5MB)--> client --> server --(echo)--> client --> hash stream --> hash should equaled
       const bytes = 1024 * 1024 * 1 * i
       const lossRatio = 0.618 * 0.05 * i

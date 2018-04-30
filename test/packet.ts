@@ -9,7 +9,7 @@ import { ok, equal, deepEqual } from 'assert'
 import { toBuffer, BufferVisitor } from '../src/internal/common'
 import {
   getVersion, getVersions, isSupportedVersion,
-  PacketNumber, ConnectionID, SocketAddress, SessionType, QuicTag,
+  PacketNumber, ConnectionID, SocketAddress, SessionType, QuicTags, Tag,
 } from '../src/internal/protocol'
 import {
   parsePacket, ResetPacket, NegotiationPacket,
@@ -25,8 +25,8 @@ suite('QUIC Packet', function () {
   suite('ResetPacket', function () {
     it('fromBuffer and toBuffer', function () {
       const connectionID = ConnectionID.random()
-      const quicTag = new QuicTag('PRST')
-      quicTag.setTag('RNON', bufferFromBytes([
+      const quicTag = new QuicTags(Tag.PRST)
+      quicTag.set(Tag.RNON, bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
@@ -35,11 +35,11 @@ suite('QUIC Packet', function () {
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB]))
-      quicTag.setTag('RSEQ', toBuffer(new PacketNumber(1)))
-      quicTag.setTag('CADR', bufferFromBytes([
-        0x02, 0x00,
+      quicTag.set(Tag.RSEQ, toBuffer(new PacketNumber(1)))
+      quicTag.set(Tag.CADR, bufferFromBytes([
+        0x00, 0x02,
         0x04, 0x1F, 0xC6, 0x2C,
-        0xBB, 0x01]))
+        0x01, 0xBB]))
 
       const resetPacket = new ResetPacket(connectionID, quicTag)
       const buf = toBuffer(resetPacket)
@@ -54,8 +54,8 @@ suite('QUIC Packet', function () {
 
     it('parse with parsePacket', function () {
       const connectionID = ConnectionID.random()
-      const quicTag = new QuicTag('PRST')
-      quicTag.setTag('RNON', bufferFromBytes([
+      const quicTag = new QuicTags(Tag.PRST)
+      quicTag.set(Tag.RNON, bufferFromBytes([
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
@@ -64,11 +64,11 @@ suite('QUIC Packet', function () {
         0x01, 0xEF, 0xCD, 0xAB,
         0x89, 0x67, 0x45, 0x23,
         0x01, 0xEF, 0xCD, 0xAB]))
-      quicTag.setTag('RSEQ', toBuffer(new PacketNumber(1)))
-      quicTag.setTag('CADR', bufferFromBytes([
-        0x02, 0x00,
+      quicTag.set(Tag.RSEQ, toBuffer(new PacketNumber(1)))
+      quicTag.set(Tag.CADR, bufferFromBytes([
+        0x00, 0x02,
         0x04, 0x1F, 0xC6, 0x2C,
-        0xBB, 0x01]))
+        0x01, 0xBB]))
 
       const resetPacket = new ResetPacket(connectionID, quicTag)
       const buf = toBuffer(resetPacket)
@@ -116,27 +116,21 @@ suite('QUIC Packet', function () {
     it('fromBuffer and toBuffer', function () {
       const connectionID = ConnectionID.random()
       const packetNumber = new PacketNumber(16)
-      const nonceProof = bufferFromBytes([
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB,
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB,
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB,
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB])
-
-      const regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof)
+      const regularPacket = new RegularPacket(connectionID, packetNumber)
       regularPacket.setVersion(getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
       const buf = toBuffer(regularPacket)
-      const res = RegularPacket.fromBuffer(new BufferVisitor(buf), regularPacket.flag)
+      const bufv = new BufferVisitor(buf)
+      const res = RegularPacket.fromBuffer(bufv, regularPacket.flag, SessionType.SERVER)
+
       ok(res instanceof RegularPacket)
       ok(regularPacket.flag === res.flag)
       ok(regularPacket.connectionID.equals(res.connectionID))
       ok(regularPacket.packetNumber.equals(res.packetNumber))
-      ok(regularPacket.nonce.equals(res.nonce))
       equal(regularPacket.version, res.version)
+      equal(res.frames.length, 0)
+      res.parseFrames(bufv)
+      equal(res.frames.length, 2)
       equal(res.frames[0].name, 'PADDING')
       equal(res.frames[1].name, 'PING')
     })
@@ -144,29 +138,37 @@ suite('QUIC Packet', function () {
     it('parse with parsePacket', function () {
       const connectionID = ConnectionID.random()
       const packetNumber = new PacketNumber(16)
-      const nonceProof = bufferFromBytes([
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB,
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB,
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB,
-        0x89, 0x67, 0x45, 0x23,
-        0x01, 0xEF, 0xCD, 0xAB])
-
-      const regularPacket = new RegularPacket(connectionID, packetNumber, nonceProof)
+      const regularPacket = new RegularPacket(connectionID, packetNumber)
       regularPacket.setVersion(getVersion())
       regularPacket.addFrames(new PaddingFrame(), new PingFrame())
       const buf = toBuffer(regularPacket)
-      const res = parsePacket(new BufferVisitor(buf), SessionType.CLIENT) as RegularPacket
+      const bufv = new BufferVisitor(buf)
+      const res = parsePacket(bufv, SessionType.CLIENT) as RegularPacket
       ok(res instanceof RegularPacket)
       ok(regularPacket.flag === res.flag)
       ok(regularPacket.connectionID.equals(res.connectionID))
       ok(regularPacket.packetNumber.equals(res.packetNumber))
-      ok(regularPacket.nonce.equals(res.nonce))
       equal(regularPacket.version, res.version)
+      equal(res.frames.length, 0)
+      res.parseFrames(bufv)
+      equal(res.frames.length, 2)
       equal(res.frames[0].name, 'PADDING')
       equal(res.frames[1].name, 'PING')
+    })
+
+    it('parse data from chrome', function () {
+      let bufv = new BufferVisitor(bufferFromBytes([0x1c, 0xb8, 0xef, 0xb3, 0xf0, 0xa2, 0x16, 0x5e, 0x4c, 0x1, 0xf]))
+      let res = parsePacket(bufv, SessionType.CLIENT) as RegularPacket
+      ok(res instanceof RegularPacket)
+      equal(res.flag, 24)
+      equal(res.connectionID.valueOf(), 'b8efb3f0a2165e4c')
+      equal(res.packetNumber, 271)
+      equal(res.version, '')
+      equal(res.frames.length, 0)
+
+      bufv = new BufferVisitor(bufferFromBytes([0x1c, 0xb8, 0xef, 0xb3, 0xf0, 0xa2, 0x16, 0x5e, 0x4c, 0x1, 0x10]))
+      res = parsePacket(bufv, SessionType.CLIENT) as RegularPacket
+      equal(res.packetNumber, 272)
     })
   })
 })

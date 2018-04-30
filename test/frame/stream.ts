@@ -31,7 +31,7 @@ suite('STREAM Frame', function () {
     ok(buf.equals(bufferFromBytes([
       0b10100000,
       0x1,
-      0x7, 0x0,
+      0x0, 0x7,
       'abcdefg',
     ])))
     ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))
@@ -46,8 +46,8 @@ suite('STREAM Frame', function () {
     ok(buf.equals(bufferFromBytes([
       0b10100100,
       0x3,
-      0x7, 0x0,
-      0x7, 0x0,
+      0x0, 0x7,
+      0x0, 0x7,
       'higklmn',
     ])))
     ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))
@@ -62,8 +62,8 @@ suite('STREAM Frame', function () {
     ok(buf.equals(bufferFromBytes([
       0b10100100,
       0x5,
-      0xe, 0x0,
-      0x6, 0x0,
+      0x0, 0xe,
+      0x0, 0x6,
       'opqrst',
     ])))
     ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))
@@ -78,8 +78,8 @@ suite('STREAM Frame', function () {
     ok(buf.equals(bufferFromBytes([
       0b11100100,
       0x7,
-      0x14, 0x0,
-      0x6, 0x0,
+      0x0, 0x14,
+      0x0, 0x6,
       'uvwxyz',
     ])))
     ok(buf.equals(toBuffer(StreamFrame.fromBuffer(new BufferVisitor(buf)))))

@@ -606,7 +606,7 @@ export class QUICError extends Error {
     if (bufv.isOutside()) {
       throw new QUICError('INVALID_ERROR_CODE')
     }
-    const code = bufv.buf.readUInt32LE(bufv.start)
+    const code = bufv.buf.readUInt32BE(bufv.start)
     return new QUICError(code)
   }
 
@@ -651,7 +651,7 @@ export class QUICError extends Error {
     if (bufv.isOutside()) {
       throw new QUICError('INVALID_ERROR_CODE')
     }
-    bufv.buf.writeUInt32LE(this.code, bufv.start)
+    bufv.buf.writeUInt32BE(this.code, bufv.start)
     return bufv
   }
 }
@@ -676,7 +676,7 @@ export class QUICStreamError extends Error {
     if (bufv.isOutside()) {
       throw new QUICError('INVALID_ERROR_CODE')
     }
-    const code = bufv.buf.readUInt32LE(bufv.start)
+    const code = bufv.buf.readUInt32BE(bufv.start)
     return new QUICStreamError(code)
   }
 
@@ -721,7 +721,7 @@ export class QUICStreamError extends Error {
     if (bufv.isOutside()) {
       throw new QUICError('INVALID_ERROR_CODE')
     }
-    bufv.buf.writeUInt32LE(this.code, bufv.start)
+    bufv.buf.writeUInt32BE(this.code, bufv.start)
     return bufv
   }
 }

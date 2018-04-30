@@ -5,7 +5,6 @@
 
 import { debuglog } from 'util'
 import { EventEmitter } from 'events'
-import { randomBytes } from 'crypto'
 import {
   PingFrameDelay,
   DefaultIdleTimeout,
@@ -23,7 +22,8 @@ import {
   PacketNumber,
   ConnectionID,
   SocketAddress,
-  QuicTag,
+  Tag,
+  QuicTags,
  } from './internal/protocol'
 import {
   kID,
@@ -145,7 +145,7 @@ export class Session extends EventEmitter {
   _newRegularPacket (): RegularPacket {
     const packetNumber = this[kNextPacketNumber]
     this[kNextPacketNumber] = packetNumber.nextNumber()
-    return new RegularPacket(this[kID], packetNumber, randomBytes(32))
+    return new RegularPacket(this[kID], packetNumber)
   }
 
   _sendFrame (frame: Frame, callback?: (...args: any[]) => void) {
@@ -230,8 +230,6 @@ export class Session extends EventEmitter {
 
     sendPacket(socket, packet, this[kState].remotePort, this[kState].remoteAddress, callback)
     // debug(`%s session %s - write packet: %j`, this.id, packet.valueOf())
-    // const buf = toBuffer(packet)
-    // socket.send(buf, this[kState].remotePort, this[kState].remoteAddress, callback)
   }
 
   _sendWindowUpdate (offset: Offset, streamID?: StreamID) {
@@ -255,6 +253,7 @@ export class Session extends EventEmitter {
     }
     debug(`%s session %s - write AckFrame, lowestAcked: %d, largestAcked: %d, ackRanges: %j`,
       SessionType[this[kType]], this.id, frame.lowestAcked, frame.largestAcked, frame.ackRanges)
+    frame.setDelay()
     this._sendFrame(frame, (err) => {
       if (err != null) {
         this.destroy(err)
@@ -262,10 +261,18 @@ export class Session extends EventEmitter {
     })
   }
 
-  _handleRegularPacket (packet: RegularPacket, rcvTime: number, _bufv: BufferVisitor) {
+  _handleRegularPacket (packet: RegularPacket, rcvTime: number, bufv: BufferVisitor) {
     if (this.isClient && packet.nonce != null) {
       // TODO
       // this.cryptoSetup.SetDiversificationNonce(packet.nonce)
+    }
+
+    try {
+      packet.parseFrames(bufv)
+    } catch (err) {
+      debug(`%s session %s - parsing frames error: %o`, err)
+      this.destroy(QuicError.fromError(err))
+      return
     }
 
     const packetNumber = packet.packetNumber.valueOf()
@@ -274,6 +281,7 @@ export class Session extends EventEmitter {
     if (this[kACKHandler].ack(packetNumber, rcvTime, packet.needAck())) {
       this._trySendAckFrame()
     }
+
     debug(`%s session %s - received RegularPacket, packetNumber: %d, frames: %j`,
       SessionType[this[kType]], this.id, packetNumber, packet.frames.map((frame) => frame.name))
     for (const frame of packet.frames) {
@@ -491,12 +499,12 @@ export class Session extends EventEmitter {
         return resolve()
       }
 
-      const tags = new QuicTag('PRST')
-      tags.setTag('RNON', Buffer.allocUnsafe(8)) // TODO
-      tags.setTag('RSEQ', toBuffer(this[kNextPacketNumber].prevNumber()))
+      const tags = new QuicTags(Tag.PRST)
+      tags.set(Tag.RNON, Buffer.allocUnsafe(8)) // TODO
+      tags.set(Tag.RSEQ, toBuffer(this[kNextPacketNumber].prevNumber()))
       const localAddr = this[kState].localAddr
       if (localAddr != null) {
-        tags.setTag('CADR', toBuffer(localAddr))
+        tags.set(Tag.CADR, toBuffer(localAddr))
       }
 
       const packet = new ResetPacket(this[kID], tags)
