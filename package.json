@@ -4,14 +4,14 @@
   "authors": [
     "Yan Qing <admin@zensh.com>"
   ],
-  "version": "0.4.1",
+  "version": "0.4.2",
   "main": "dist/index.js",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git@github.com:toajs/quic.git"
+    "url": "git@github.com:fidm/quic.git"
   },
-  "homepage": "https://github.com/toajs/quic",
+  "homepage": "https://github.com/fidm/quic",
   "engines": {
     "node": ">= 8"
   },
@@ -20,13 +20,12 @@
     "udp"
   ],
   "devDependencies": {
-    "@types/node": "^10.0.0",
+    "@types/node": "^10.0.3",
     "ilog": "^1.2.3",
-    "node-forge": "^0.7.5",
     "thunks": "^4.9.2",
     "tman": "^1.7.4",
     "ts-node": "^5.0.1",
-    "tslint": "^5.9.1",
+    "tslint": "^5.10.0",
     "tslint-eslint-rules": "^5.1.0",
     "typescript": "^2.8.3"
   },
@@ -42,6 +41,6 @@
     "CHANGELOG.md"
   ],
   "dependencies": {
-    "@sindresorhus/fnv1a": "^1.0.0"
+    "long": "^4.0.0"
   }
 }

@@ -1,5 +1,5 @@
 'use strict'
-// **Github:** https://github.com/toajs/quic
+// **Github:** https://github.com/fidm/quic
 //
 // **License:** MIT
 

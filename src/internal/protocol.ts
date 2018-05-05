@@ -1,5 +1,5 @@
 'use strict'
-// **Github:** https://github.com/toajs/quic
+// **Github:** https://github.com/fidm/quic
 //
 // **License:** MIT
 
@@ -838,10 +838,10 @@ export enum Tag {
   // message because the server mightn't hold state for a rejected client hello
   // and therefore the client may have issues reassembling the rejection message
   // in the event that it sent two client hellos.
-  ServerNonceTag = toTag('S', 'N', 'O', '\u{0}'),  // The server's nonce
-  SourceAddressTokenTag = toTag('S', 'T', 'K', '\u{0}'),  // Source-address token
-  CertificateTag = toTag('C', 'R', 'T', '\u{ff}'),  // Certificate chain
-  CertificateSCTTag = toTag('C', 'S', 'C', 'T'),  // Signed cert timestamp (RFC6962) of leaf cert.
+  SNO = toTag('S', 'N', 'O', '\u{0}'),  // The server's nonce
+  STK = toTag('S', 'T', 'K', '\u{0}'),  // Source-address token
+  CRT = toTag('C', 'R', 'T', '\u{ff}'),  // Certificate chain
+  CSCT = toTag('C', 'S', 'C', 'T'),  // Signed cert timestamp (RFC6962) of leaf cert.
 }
 
 function toTag (a: string, b: string, c: string, d: string): number {

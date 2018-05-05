@@ -14,7 +14,7 @@ A QUIC server/client implementation in Node.js.
 
 ### QUIC without TLS
 
-https://github.com/toajs/quic/blob/master/example/echo.js
+https://github.com/fidm/quic/blob/master/example/echo.js
 
 ```sh
 node -r ts-node/register example/echo.js
@@ -22,14 +22,14 @@ node -r ts-node/register example/echo.js
 
 ## License
 
-QUIC for Node.js is licensed under the [MIT](https://github.com/toajs/quic/blob/master/LICENSE) license.
-Copyright &copy; 2016-2018 Toajs.
+QUIC for Node.js is licensed under the [MIT](https://github.com/fidm/quic/blob/master/LICENSE) license.
+Copyright &copy; 2018 FIdM.
 
 [npm-url]: https://npmjs.org/package/quic
 [npm-image]: http://img.shields.io/npm/v/quic.svg
 
-[travis-url]: https://travis-ci.org/toajs/quic
-[travis-image]: http://img.shields.io/travis/toajs/quic.svg
+[travis-url]: https://travis-ci.org/fidm/quic
+[travis-image]: http://img.shields.io/travis/fidm/quic.svg
 
 [downloads-url]: https://npmjs.org/package/quic
 [downloads-image]: http://img.shields.io/npm/dm/quic.svg?style=flat-square
