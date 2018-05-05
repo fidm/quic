@@ -4,10 +4,9 @@
 // **License:** MIT
 
 import { promisify } from 'util'
-import { lookup as dnsLookup } from 'dns'
-import { QUICError } from './error'
+import { lookup } from 'dns'
 
-export const lookup = promisify(dnsLookup)
+export const dnsLookup = promisify(lookup)
 
 export class Visitor {
   start: number
@@ -48,7 +47,7 @@ export class BufferVisitor extends Visitor {
   mustHas (steps: number, message: string = 'QUIC_INTERNAL_ERROR') {
     const requested = this.end + steps
     if (requested > this.buf.length) {
-      const error = QUICError.fromError(message) as any
+      const error = new Error(message) as any
       error.available = this.buf.length
       error.requested = requested
       throw error

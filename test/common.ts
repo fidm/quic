@@ -45,7 +45,7 @@ export class RandDataStream extends Readable {
     this.sha256 = createHash('sha256')
   }
 
-  _read (size: number = 0) {
+  _read (_size: number = 0) {
     let data = randBuffer(2048)
     if (this.totalSize - this.readBytes < data.length) {
       data = data.slice(0, this.totalSize - this.readBytes)
@@ -113,7 +113,7 @@ suite('common', function () {
   })
 
   suite('UFloat16', function () {
-    function uint16Buf (val) {
+    function uint16Buf (val: number) {
       const buf = Buffer.alloc(2)
       buf.writeUInt16BE(val, 0)
       return buf

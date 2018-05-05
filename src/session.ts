@@ -28,6 +28,7 @@ import {
 import {
   kID,
   kFC,
+  kHS,
   kRTT,
   kStreams,
   kSocket,
@@ -54,20 +55,47 @@ import {
   BlockedFrame,
 } from './internal/frame'
 import { Packet, ResetPacket, RegularPacket } from './internal/packet'
-import { QuicError, StreamError } from './internal/error'
+import { QuicError, StreamError, QUICError } from './internal/error'
 import { ConnectionFlowController } from './internal/flowcontrol'
 import { RTTStats } from './internal/congestion'
-
-import { Socket, sendPacket } from './socket'
-import { Stream } from './stream'
 import { BufferVisitor, toBuffer, Queue } from './internal/common'
 
+import { Socket } from './socket'
+import { Stream, SessionRef } from './stream'
+import { HandShake } from './handshake'
+
 const debug = debuglog('quic:session')
+
+export declare interface Session {
+  addListener (event: "error", listener: (err: Error) => void): this
+  addListener (event: "goaway", listener: (err: QUICError) => void): this
+  addListener (event: "close", listener: (err?: Error) => void): this
+  addListener (event: "timeout", listener: () => void): this
+  addListener (event: "stream", listener: (stream: Stream) => void): this
+
+  emit (event: "error", err: Error): boolean
+  emit (event: "goaway", err: QUICError): boolean
+  emit (event: "close", err?: Error): boolean
+  emit (event: "timeout"): boolean
+  emit (event: "stream", stream: Stream): boolean
+
+  on (event: "error", listener: (err: Error) => void): this
+  on (event: "goaway", listener: (err: QUICError) => void): this
+  on (event: "close", listener: (err?: Error) => void): this
+  on (event: "timeout", listener: () => void): this
+  on (event: "stream", listener: (stream: Stream) => void): this
+
+  once (event: "error", listener: (err: Error) => void): this
+  once (event: "goaway", listener: (err: QUICError) => void): this
+  once (event: "close", listener: (err?: Error) => void): this
+  once (event: "timeout", listener: () => void): this
+  once (event: "stream", listener: (stream: Stream) => void): this
+}
 
 //
 // *************** Session ***************
 //
-export class Session extends EventEmitter {
+export class Session extends EventEmitter implements SessionRef {
   // Event: 'timeout'
   // Event: 'close'
   // Event: 'error'
@@ -75,19 +103,20 @@ export class Session extends EventEmitter {
   // Event: 'version'
   // Event: 'goaway'
 
-  protected [kID]: ConnectionID
-  protected [kType]: SessionType
-  protected [kIntervalCheck]: NodeJS.Timer | null
-  protected [kStreams]: Map<number, Stream>
-  protected [kNextStreamID]: StreamID
-  protected [kState]: SessionState
-  protected [kACKHandler]: ACKHandler
-  protected [kSocket]: Socket | null
-  protected [kVersion]: string
-  protected [kNextPacketNumber]: PacketNumber
-  protected [kUnackedPackets]: Queue<RegularPacket>
-  protected [kRTT]: RTTStats
-  protected [kFC]: ConnectionFlowController
+  [kID]: ConnectionID
+  [kType]: SessionType
+  [kIntervalCheck]: NodeJS.Timer | null
+  [kStreams]: Map<number, Stream>
+  [kNextStreamID]: StreamID
+  [kState]: SessionState
+  [kACKHandler]: ACKHandler
+  [kSocket]: Socket<Session> | null
+  [kVersion]: string
+  [kNextPacketNumber]: PacketNumber
+  [kUnackedPackets]: Queue<RegularPacket>
+  [kRTT]: RTTStats
+  [kFC]: ConnectionFlowController
+  [kHS]: HandShake
   constructor (id: ConnectionID, type: SessionType) {
     super()
 
@@ -97,6 +126,7 @@ export class Session extends EventEmitter {
     this[kNextStreamID] = new StreamID(type === SessionType.SERVER ? 2 : 1)
     this[kState] = new SessionState()
     this[kACKHandler] = new ACKHandler()
+    this[kHS] = new HandShake(this) // will be overwrite
     this[kSocket] = null
     this[kVersion] = ''
     this[kIntervalCheck] = null
@@ -140,6 +170,14 @@ export class Session extends EventEmitter {
       port: this[kState].remotePort,
       socketAddress: this[kState].remoteAddr,
     }
+  }
+
+  get _stateMaxPacketSize (): number {
+    return this[kState].maxPacketSize
+  }
+
+  _stateDecreaseStreamCount () {
+    this[kState].liveStreamCount -= 1
   }
 
   _newRegularPacket (): RegularPacket {
@@ -228,7 +266,7 @@ export class Session extends EventEmitter {
         SessionType[this[kType]], this.id, _packet.packetNumber.valueOf(), _packet.frames.map((frame) => frame.name))
     }
 
-    sendPacket(socket, packet, this[kState].remotePort, this[kState].remoteAddress, callback)
+    socket.sendPacket(packet, this[kState].remotePort, this[kState].remoteAddress, callback)
     // debug(`%s session %s - write packet: %j`, this.id, packet.valueOf())
   }
 
@@ -262,22 +300,18 @@ export class Session extends EventEmitter {
   }
 
   _handleRegularPacket (packet: RegularPacket, rcvTime: number, bufv: BufferVisitor) {
-    if (this.isClient && packet.nonce != null) {
-      // TODO
-      // this.cryptoSetup.SetDiversificationNonce(packet.nonce)
-    }
-
-    try {
-      packet.parseFrames(bufv)
-    } catch (err) {
-      debug(`%s session %s - parsing frames error: %o`, err)
-      this.destroy(QuicError.fromError(err))
-      return
-    }
-
     const packetNumber = packet.packetNumber.valueOf()
-
     this[kState].lastNetworkActivityTime = rcvTime
+
+    // if (!this[kHS].completed) {
+    //   this[kHS].handlePacket(packet, rcvTime, bufv)
+    //   if (this[kACKHandler].ack(packetNumber, rcvTime, packet.needAck())) {
+    //     this._trySendAckFrame()
+    //   }
+    //   return
+    // }
+
+    packet.parseFrames(bufv)
     if (this[kACKHandler].ack(packetNumber, rcvTime, packet.needAck())) {
       this._trySendAckFrame()
     }
@@ -327,7 +361,7 @@ export class Session extends EventEmitter {
           break
         case 'GOAWAY':
           this[kState].shuttingDown = true
-          this.emit('goaway')
+          this.emit('goaway', (frame as GoAwayFrame).error)
           break
       }
     }
@@ -429,7 +463,7 @@ export class Session extends EventEmitter {
     return
   }
 
-  request (options?: any) {
+  request (options?: any): Stream {
     if (this[kState].shuttingDown) {
       throw StreamError.fromError(StreamError.QUIC_STREAM_PEER_GOING_AWAY)
     }

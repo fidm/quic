@@ -4,30 +4,46 @@
 // **License:** MIT
 
 import { promisify } from 'util'
+import { AddressInfo } from 'net'
+import { Socket } from 'dgram'
 import { EventEmitter } from 'events'
 import { ilog } from 'ilog'
 import { thunk } from 'thunks'
-import { suite, it } from 'tman'
-import { ok, equal, deepEqual } from 'assert'
+import { suite, it, Test } from 'tman'
+import { equal } from 'assert'
 import { createHash } from 'crypto'
-import { Client, Server } from '../src'
+
 import { RandDataStream } from './common'
-import { RegularPacket } from '../src/internal/packet'
-import { BufferVisitor } from '../src/internal/common'
 import { kSocket } from '../src/internal/symbol'
+import { Client } from '../src/client'
+import { Server } from '../src/server'
 
 const onceEmit = promisify(EventEmitter.prototype.once)
+
+function getListener (ee: EventEmitter, name: string): (...args: any[]) => void {
+  const res = ee.listeners(name)
+  if (res[0] == null) {
+    throw new Error(`no Listener: ${name}`)
+  }
+  return res[0] as (...args: any[]) => void
+}
 
 suite('chaos testing', function () {
   function echoServer () {
     return new Server()
-      .on('error', (err) => { ilog.error(Object.assign(err, { class: 'server error' })) })
+      .on('error', (err) => {
+        ilog.error(Object.assign(err, { class: 'server error' }))
+      })
       .on('session', (session) => {
         session
-          .on('error', (err) => { ilog.error(Object.assign(err, { class: 'server session error' })) })
+          .on('error', (err) => {
+            ilog.error(Object.assign(err, { class: 'server session error' }))
+          })
           .on('stream', (stream) => {
             stream
-              .on('error', (err) => { ilog.error(Object.assign(err, { class: 'server stream error' })) })
+              .on('error', (err) => {
+                ilog.error(Object.assign(err, { class: 'server stream error' }))
+              })
               .on('data', (data) => {
                 stream.write(data)
               })
@@ -42,19 +58,24 @@ suite('chaos testing', function () {
     for (const i of [1, 2, 3, 4, 5]) {
       // random stream & hash stream --(10MB)--> client --> server --(echo)--> client --> hash stream --> hash should equaled
       const bytes = 1024 * 1024 * 2 * i // 2MB random data to echo
-      it(`with bytes ${bytes}`, async function () {
+      // async/await will lead to "RangeError: Maximum call stack size exceeded" when compiling
+      it(`with bytes ${bytes}`, function * (this: Test) {
         this.timeout(1000 * 20)
 
         const server = echoServer()
-        await server.listen(0)
+        yield server.listen(0)
 
         const cli1 = new Client()
-        cli1.on('error', (err) => { ilog(Object.assign(err, { class: 'client error' })) })
+        cli1.on('error', (err) => {
+          ilog(Object.assign(err, { class: 'client error' }))
+        })
 
-        await cli1.connect(server.address().port)
+        yield cli1.connect(server.address().port)
 
         const stream1 = cli1.request()
-        stream1.on('error', (err) => { throw Object.assign(err, { class: 'client stream error' })})
+        stream1.on('error', (err) => {
+          throw Object.assign(err, { class: 'client stream error' })
+        })
         const dataStream1 = new RandDataStream(bytes)
         stream1.on('drain', () => {
           dataStream1.resume()
@@ -71,11 +92,15 @@ suite('chaos testing', function () {
         const hash1 = createHash('sha256')
         stream1.pipe(hash1)
 
-        const cli2 = await cli1.spawn(server.address().port)
+        const cli2 = yield cli1.spawn(server.address().port)
         const stream2 = cli2.request()
         const stream3 = cli2.request()
-        stream2.on('error', (err) => { throw Object.assign(err, { class: 'client stream error' })})
-        stream3.on('error', (err) => { throw Object.assign(err, { class: 'client stream error' })})
+        stream2.on('error', (err: Error) => {
+          throw Object.assign(err, { class: 'client stream error' })
+        })
+        stream3.on('error', (err: Error) => {
+          throw Object.assign(err, { class: 'client stream error' })
+        })
         const dataStream2 = new RandDataStream(bytes)
         stream3.on('drain', () => {
           dataStream2.resume()
@@ -97,7 +122,7 @@ suite('chaos testing', function () {
         const hash3 = createHash('sha256')
         stream3.pipe(hash3)
 
-        await Promise.all([
+        yield Promise.all([
           onceEmit.call(stream1, 'end'),
           onceEmit.call(stream2, 'end'),
           onceEmit.call(stream3, 'end'),
@@ -122,9 +147,9 @@ suite('chaos testing', function () {
         const ret3 = hash3.read() as Buffer
         equal(ret3.toString('hex'), dataStream2.sum)
 
-        await Promise.all([cli1.close(), cli2.close()])
-        await server.close()
-        await thunk.promise(thunk.delay(500))
+        yield Promise.all([cli1.close(), cli2.close()])
+        yield server.close()
+        yield thunk.promise(thunk.delay(500))
       })
     }
   })
@@ -133,14 +158,15 @@ suite('chaos testing', function () {
     for (const i of [1, 2, 3, 4, 5]) {
       // random stream & hash stream --(10MB)--> client --> server --(echo)--> client --> hash stream --> hash should equaled
       const bytes = 1024 * 1024 * 2 * i // 2MB random data to echo
-      it(`with bytes ${bytes}`, async function () {
+      it(`with bytes ${bytes}`, function * (this: Test) {
         this.timeout(1000 * 200)
 
         const server = echoServer()
-        await server.listen(0)
-        const serverListener = server[kSocket].listeners('message')[0]
-        server[kSocket].removeListener('message', serverListener)
-        server[kSocket].addListener('message', function (msg: Buffer, rinfo: AddressInfo) {
+        yield server.listen(0)
+        const see = server[kSocket] as EventEmitter
+        const serverListener = getListener(see, 'message')
+        see.removeListener('message', serverListener)
+        see.addListener('message', function (this: Socket, msg: Buffer, rinfo: AddressInfo) {
           const rand = Math.random()
           if (rand < 0.5) {
             setTimeout(() => serverListener.call(this, msg, rinfo), rand * 10) // out-of-order
@@ -153,10 +179,11 @@ suite('chaos testing', function () {
         cli1.setKeepAlive(true)
         cli1.on('error', (err) => { ilog(Object.assign(err, { class: 'client error' })) })
 
-        await cli1.connect(server.address().port)
-        const clientListener = cli1[kSocket].listeners('message')[0]
-        cli1[kSocket].removeListener('message', clientListener)
-        cli1[kSocket].addListener('message', function (msg: Buffer, rinfo: AddressInfo) {
+        yield cli1.connect(server.address().port)
+        const cee = cli1[kSocket] as EventEmitter
+        const clientListener = getListener(cee, 'message')
+        cee.removeListener('message', clientListener)
+        cee.addListener('message', function (this: Socket, msg: Buffer, rinfo: AddressInfo) {
           const rand = Math.random()
           if (rand < 0.5) {
             setTimeout(() => clientListener.call(this, msg, rinfo), rand * 10) // out-of-order
@@ -183,12 +210,16 @@ suite('chaos testing', function () {
         const hash1 = createHash('sha256')
         stream1.pipe(hash1)
 
-        const cli2 = await cli1.spawn(server.address().port)
+        const cli2 = yield cli1.spawn(server.address().port)
         cli2.setKeepAlive(true)
         const stream2 = cli2.request()
         const stream3 = cli2.request()
-        stream2.on('error', (err) => { throw Object.assign(err, { class: 'client stream error' })})
-        stream3.on('error', (err) => { throw Object.assign(err, { class: 'client stream error' })})
+        stream2.on('error', (err: Error) => {
+          throw Object.assign(err, { class: 'client stream error' })
+        })
+        stream3.on('error', (err: Error) => {
+          throw Object.assign(err, { class: 'client stream error' })
+        })
         const dataStream2 = new RandDataStream(bytes)
         stream3.on('drain', () => {
           dataStream2.resume()
@@ -210,7 +241,7 @@ suite('chaos testing', function () {
         const hash3 = createHash('sha256')
         stream3.pipe(hash3)
 
-        await Promise.all([
+        yield Promise.all([
           onceEmit.call(stream1, 'end'),
           onceEmit.call(stream2, 'end'),
           onceEmit.call(stream3, 'end'),
@@ -235,9 +266,9 @@ suite('chaos testing', function () {
         const ret3 = hash3.read() as Buffer
         equal(ret3.toString('hex'), dataStream2.sum)
 
-        await Promise.all([cli1.close(), cli2.close()])
-        await server.close()
-        await thunk.promise(thunk.delay(500))
+        yield Promise.all([cli1.close(), cli2.close()])
+        yield server.close()
+        yield thunk.promise(thunk.delay(500))
       })
     }
   })
@@ -247,14 +278,15 @@ suite('chaos testing', function () {
       // random stream & hash stream --(5MB)--> client --> server --(echo)--> client --> hash stream --> hash should equaled
       const bytes = 1024 * 1024 * 1 * i
       const lossRatio = 0.618 * 0.05 * i
-      it(`with loss ratio ${lossRatio * 100}%`, async function () {
+      it(`with loss ratio ${lossRatio * 100}%`, function * (this: Test) {
         this.timeout(1000 * 60 * 2)
 
         const server = echoServer()
-        await server.listen(0)
-        const serverListener = server[kSocket].listeners('message')[0]
-        server[kSocket].removeListener('message', serverListener)
-        server[kSocket].addListener('message', function (msg: Buffer, rinfo: AddressInfo) {
+        yield server.listen(0)
+        const see = server[kSocket] as EventEmitter
+        const serverListener = getListener(see, 'message')
+        see.removeListener('message', serverListener)
+        see.addListener('message', function (this: Socket, msg: Buffer, rinfo: AddressInfo) {
           const rand = Math.random()
           if (rand < lossRatio) {
             return // packet loss
@@ -270,10 +302,11 @@ suite('chaos testing', function () {
         cli1.setKeepAlive(true)
         cli1.on('error', (err) => { ilog(Object.assign(err, { class: 'client error' })) })
 
-        await cli1.connect(server.address().port)
-        const clientListener = cli1[kSocket].listeners('message')[0]
-        cli1[kSocket].removeListener('message', clientListener)
-        cli1[kSocket].addListener('message', function (msg: Buffer, rinfo: AddressInfo) {
+        yield cli1.connect(server.address().port)
+        const cee = cli1[kSocket] as EventEmitter
+        const clientListener = getListener(cee, 'message')
+        cee.removeListener('message', clientListener)
+        cee.addListener('message', function (this: Socket, msg: Buffer, rinfo: AddressInfo) {
           const rand = Math.random()
           if (rand < lossRatio) {
             return // packet loss
@@ -303,12 +336,16 @@ suite('chaos testing', function () {
         const hash1 = createHash('sha256')
         stream1.pipe(hash1)
 
-        const cli2 = await cli1.spawn(server.address().port)
+        const cli2 = yield cli1.spawn(server.address().port)
         cli2.setKeepAlive(true)
         const stream2 = cli2.request()
         const stream3 = cli2.request()
-        stream2.on('error', (err) => { throw Object.assign(err, { class: 'client stream error' })})
-        stream3.on('error', (err) => { throw Object.assign(err, { class: 'client stream error' })})
+        stream2.on('error', (err: Error) => {
+          throw Object.assign(err, { class: 'client stream error' })
+        })
+        stream3.on('error', (err: Error) => {
+          throw Object.assign(err, { class: 'client stream error' })
+        })
         const dataStream2 = new RandDataStream(bytes)
         stream3.on('drain', () => {
           dataStream2.resume()
@@ -330,7 +367,7 @@ suite('chaos testing', function () {
         const hash3 = createHash('sha256')
         stream3.pipe(hash3)
 
-        await Promise.all([
+        yield Promise.all([
           onceEmit.call(stream1, 'end'),
           onceEmit.call(stream2, 'end'),
           onceEmit.call(stream3, 'end'),
@@ -355,9 +392,9 @@ suite('chaos testing', function () {
         const ret3 = hash3.read() as Buffer
         equal(ret3.toString('hex'), dataStream2.sum)
 
-        await Promise.all([cli1.close(), cli2.close()])
-        await server.close()
-        await thunk.promise(thunk.delay(500))
+        yield Promise.all([cli1.close(), cli2.close()])
+        yield server.close()
+        yield thunk.promise(thunk.delay(500))
       })
     }
   })

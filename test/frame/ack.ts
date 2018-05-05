@@ -7,17 +7,12 @@
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual, throws } from 'assert'
 
-import { BufferVisitor, toBuffer } from '../../src/internal/common'
-import { QuicError } from '../../src/internal/error'
-import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
-import {
-  parseFrame, StreamFrame, AckFrame, AckRange, PaddingFrame,
-  RstStreamFrame, ConnectionCloseFrame, GoAwayFrame,
-  WindowUpdateFrame, BlockedFrame, StopWaitingFrame,
-  PingFrame, CongestionFeedbackFrame,
-} from '../../src/internal/frame'
-
 import { bufferFromBytes } from '../common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
+import { PacketNumber } from '../../src/internal/protocol'
+import {
+  parseFrame, AckFrame, AckRange,
+} from '../../src/internal/frame'
 
 suite('ACK Frame', function () {
   suite('parsing', function () {

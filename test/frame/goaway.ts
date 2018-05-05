@@ -5,19 +5,15 @@
 // **License:** MIT
 
 import { suite, it } from 'tman'
-import { ok, strictEqual, deepEqual, throws } from 'assert'
-
-import { BufferVisitor, toBuffer } from '../../src/internal/common'
-import { QuicError } from '../../src/internal/error'
-import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
-import {
-  parseFrame, StreamFrame, AckFrame, AckRange, PaddingFrame,
-  RstStreamFrame, ConnectionCloseFrame, GoAwayFrame,
-  WindowUpdateFrame, BlockedFrame, StopWaitingFrame,
-  PingFrame, CongestionFeedbackFrame,
-} from '../../src/internal/frame'
+import { ok, strictEqual } from 'assert'
 
 import { bufferFromBytes } from '../common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
+import { QuicError } from '../../src/internal/error'
+import { StreamID, PacketNumber } from '../../src/internal/protocol'
+import {
+  parseFrame, GoAwayFrame,
+} from '../../src/internal/frame'
 
 suite('GOAWAY Frame', function () {
   it('new GoAwayFrame with QuicError(0)', function () {

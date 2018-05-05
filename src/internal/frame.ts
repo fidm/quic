@@ -4,9 +4,9 @@
 // **License:** MIT
 
 import { inspect } from 'util'
+import { BufferVisitor, readUFloat16, writeUFloat16} from './common'
 import { QuicError, QUICError, QUICStreamError } from './error'
 import { PacketNumber, Offset, StreamID } from './protocol'
-import { BufferVisitor, readUFloat16, writeUFloat16} from './common'
 
 // Frame Types
 // | Type­field value | Control Frame­type |
