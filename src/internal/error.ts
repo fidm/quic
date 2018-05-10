@@ -602,10 +602,7 @@ export class QUICError extends Error {
   }
 
   static fromBuffer (bufv: BufferVisitor): QUICError {
-    bufv.walk(4)
-    if (bufv.isOutside()) {
-      throw new QUICError('INVALID_ERROR_CODE')
-    }
+    bufv.mustWalk(4, 'INVALID_ERROR_CODE')
     const code = bufv.buf.readUInt32BE(bufv.start)
     return new QUICError(code)
   }
@@ -647,10 +644,7 @@ export class QUICError extends Error {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    bufv.walk(4)
-    if (bufv.isOutside()) {
-      throw new QUICError('INVALID_ERROR_CODE')
-    }
+    bufv.mustWalk(4, 'INVALID_ERROR_CODE')
     bufv.buf.writeUInt32BE(this.code, bufv.start)
     return bufv
   }
@@ -672,10 +666,7 @@ export class QUICStreamError extends Error {
   }
 
   static fromBuffer (bufv: BufferVisitor): QUICStreamError {
-    bufv.walk(4)
-    if (bufv.isOutside()) {
-      throw new QUICError('INVALID_ERROR_CODE')
-    }
+    bufv.mustWalk(4, 'INVALID_ERROR_CODE')
     const code = bufv.buf.readUInt32BE(bufv.start)
     return new QUICStreamError(code)
   }
@@ -717,10 +708,7 @@ export class QUICStreamError extends Error {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    bufv.walk(4)
-    if (bufv.isOutside()) {
-      throw new QUICError('INVALID_ERROR_CODE')
-    }
+    bufv.mustWalk(4, 'INVALID_ERROR_CODE')
     bufv.buf.writeUInt32BE(this.code, bufv.start)
     return bufv
   }

@@ -5,6 +5,7 @@
 
 import { promisify } from 'util'
 import { lookup as dnsLookup } from 'dns'
+import { QUICError } from './error'
 
 export const lookup = promisify(dnsLookup)
 
@@ -44,8 +45,20 @@ export class BufferVisitor extends Visitor {
     return this.buf.length
   }
 
-  isOutside (): boolean {
-    return this.end > this.buf.length
+  mustHas (steps: number, message: string = 'QUIC_INTERNAL_ERROR') {
+    const requested = this.end + steps
+    if (requested > this.buf.length) {
+      const error = QUICError.fromError(message) as any
+      error.available = this.buf.length
+      error.requested = requested
+      throw error
+    }
+    this.walk(0)
+  }
+
+  mustWalk (steps: number, message?: string) {
+    this.mustHas(steps, message)
+    this.walk(steps)
   }
 }
 

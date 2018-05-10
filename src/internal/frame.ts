@@ -166,16 +166,10 @@ export class StreamFrame extends Frame {
     let data = null
     if ((type & 0b100000) > 0) {
       // a Data Length is present in the STREAM header
-      bufv.walk(2)
-      if (bufv.isOutside()) {
-        throw new QuicError('QUIC_INVALID_STREAM_DATA')
-      }
+      bufv.mustWalk(2, 'QUIC_INVALID_STREAM_DATA')
       const len = bufv.buf.readUInt16BE(bufv.start)
       if (len > 0) {
-        bufv.walk(len)
-        if (bufv.isOutside()) {
-          throw new QuicError('QUIC_INVALID_STREAM_DATA')
-        }
+        bufv.mustWalk(len, 'QUIC_INVALID_STREAM_DATA')
         data = Buffer.allocUnsafe(len) // should copy to release socket buffer
         bufv.buf.copy(data, 0, bufv.start, bufv.end)
       }
@@ -367,27 +361,18 @@ export class AckFrame extends Frame {
     const largestAckedNumber = PacketNumber.fromBuffer(bufv, PacketNumber.flagToByteLen((type >> 2) & 0b11))
     frame.largestAcked = largestAckedNumber.valueOf()
 
-    bufv.walk(2)
-    if (bufv.isOutside()) {
-      throw new QuicError('QUIC_INVALID_ACK_DATA')
-    }
+    bufv.mustWalk(2, 'QUIC_INVALID_ACK_DATA')
     frame.delayTime = readUFloat16(bufv.buf, bufv.start)
 
     let numAckBlocks = 0
     if (hasMissingRanges) {
-      bufv.walk(1)
-      if (bufv.isOutside()) {
-        throw new QuicError('QUIC_INVALID_ACK_DATA')
-      }
+      bufv.mustWalk(1, 'QUIC_INVALID_ACK_DATA')
       numAckBlocks = bufv.buf.readUInt8(bufv.start)
     }
     if (hasMissingRanges && numAckBlocks === 0) {
       throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
-    bufv.walk(missingNumberDeltaLen)
-    if (bufv.isOutside()) {
-      throw new QuicError('QUIC_INVALID_ACK_DATA')
-    }
+    bufv.mustWalk(missingNumberDeltaLen, 'QUIC_INVALID_ACK_DATA')
     let ackBlockLength = bufv.buf.readUIntBE(bufv.start, missingNumberDeltaLen)
     if ((frame.largestAcked > 0 && ackBlockLength < 1) || ackBlockLength > frame.largestAcked) {
       throw new QuicError('QUIC_INVALID_ACK_DATA')
@@ -400,16 +385,10 @@ export class AckFrame extends Frame {
       let inLongBlock = false
       let lastRangeComplete = false
       for (let i = 0; i < numAckBlocks; i++) {
-        bufv.walk(1)
-        if (bufv.isOutside()) {
-          throw new QuicError('QUIC_INVALID_ACK_DATA')
-        }
+        bufv.mustWalk(1, 'QUIC_INVALID_ACK_DATA')
         const gap = bufv.buf.readUInt8(bufv.start)
 
-        bufv.walk(missingNumberDeltaLen)
-        if (bufv.isOutside()) {
-          throw new QuicError('QUIC_INVALID_ACK_DATA')
-        }
+        bufv.mustWalk(missingNumberDeltaLen, 'QUIC_INVALID_ACK_DATA')
         ackBlockLength = bufv.buf.readUIntBE(bufv.start, missingNumberDeltaLen)
 
         const lastAckRange = frame.ackRanges[frame.ackRanges.length - 1]
@@ -447,37 +426,22 @@ export class AckFrame extends Frame {
       throw new QuicError('QUIC_INVALID_ACK_DATA')
     }
 
-    bufv.walk(1)
-    if (bufv.isOutside()) {
-      throw new QuicError('QUIC_INVALID_ACK_DATA')
-    }
+    bufv.mustWalk(1, 'QUIC_INVALID_ACK_DATA')
     const numTimestamp = bufv.buf.readUInt8(bufv.start)
     if (numTimestamp > 0) { // TODO
       // Delta Largest acked
-      bufv.walk(1)
-      if (bufv.isOutside()) {
-        throw new QuicError('QUIC_INVALID_ACK_DATA')
-      }
+      bufv.mustWalk(1, 'QUIC_INVALID_ACK_DATA')
       // buf.readUInt8(v.start)
       // First Timestamp
-      bufv.walk(4)
-      if (bufv.isOutside()) {
-        throw new QuicError('QUIC_INVALID_ACK_DATA')
-      }
+      bufv.mustWalk(4, 'QUIC_INVALID_ACK_DATA')
       // buf.readUInt32BE(v.start)
 
       for (let i = 0; i < numTimestamp - 1; i++) {
         // Delta Largest acked
-        bufv.walk(1)
-        if (bufv.isOutside()) {
-          throw new QuicError('QUIC_INVALID_ACK_DATA')
-        }
+        bufv.mustWalk(1, 'QUIC_INVALID_ACK_DATA')
         // buf.readUInt8(v.start)
         // Time Since Previous Timestamp
-        bufv.walk(2)
-        if (bufv.isOutside()) {
-          throw new QuicError('QUIC_INVALID_ACK_DATA')
-        }
+        bufv.mustWalk(2, 'QUIC_INVALID_ACK_DATA')
         // buf.readUInt16BE(v.start)
       }
     }
@@ -772,10 +736,7 @@ export class StopWaitingFrame extends Frame {
     }
 
     const len = packetNumber.byteLen()
-    bufv.walk(len)
-    if (bufv.isOutside()) {
-      throw new QuicError('QUIC_INVALID_STOP_WAITING_DATA')
-    }
+    bufv.mustWalk(len, 'QUIC_INVALID_STOP_WAITING_DATA')
     const delta = bufv.buf.readIntBE(bufv.start, len, false)
     return new StopWaitingFrame(packetNumber, packetNumber.valueOf() - delta)
   }
@@ -1115,10 +1076,7 @@ export class ConnectionCloseFrame extends Frame {
     bufv.walk(2)
     const reasonPhraseLen = bufv.buf.readUInt16BE(bufv.start)
     if (reasonPhraseLen > 0) {
-      bufv.walk(reasonPhraseLen)
-      if (bufv.isOutside()) {
-        throw new QuicError('QUIC_INVALID_CONNECTION_CLOSE_DATA')
-      }
+      bufv.mustWalk(reasonPhraseLen, 'QUIC_INVALID_CONNECTION_CLOSE_DATA')
       error.message = bufv.buf.toString('utf8', bufv.start, bufv.end)
     }
     return new ConnectionCloseFrame(error)
@@ -1195,16 +1153,10 @@ export class GoAwayFrame extends Frame {
 
     const error = QuicError.fromBuffer(bufv)
     const streamID = StreamID.fromBuffer(bufv, 4)
-    bufv.walk(2)
-    if (bufv.isOutside()) {
-      throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-    }
+    bufv.mustWalk(2, 'QUIC_INVALID_GOAWAY_DATA')
     const reasonPhraseLen = bufv.buf.readUInt16BE(bufv.start)
     if (reasonPhraseLen > 0) {
-      bufv.walk(reasonPhraseLen)
-      if (bufv.isOutside()) {
-        throw new QuicError('QUIC_INVALID_GOAWAY_DATA')
-      }
+      bufv.mustWalk(reasonPhraseLen, 'QUIC_INVALID_GOAWAY_DATA')
       error.message = bufv.buf.toString('utf8', bufv.start, bufv.end)
     }
     return new GoAwayFrame(streamID, error)
