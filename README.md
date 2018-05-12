@@ -8,8 +8,6 @@ A QUIC server/client implementation in Node.js.
 
 ## Google QUIC https://www.chromium.org/quic
 
-## QUIC Wire Layout Specification: https://docs.google.com/document/d/1WJvyZflAO2pq77yOLbp9NsGjC1CHetAXV8I0fQe-B_U
-
 ## Demo
 
 ### QUIC without TLS
@@ -19,6 +17,14 @@ https://github.com/fidm/quic/blob/master/example/echo.js
 ```sh
 node -r ts-node/register example/echo.js
 ```
+
+## Road Map
+
+1. Implement wire layout ✓
+2. Implement stream, session, client and server ✓
+3. Implement crypto layout (Doing)
+4. Implement HTTP/2 client and server (ToDo)
+5. Implement [IETF](https://www.ietf.org/) QUIC (ToDo)
 
 ## License
 
