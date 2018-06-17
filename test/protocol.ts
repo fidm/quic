@@ -3,16 +3,14 @@
 //
 // **License:** MIT
 
-import { format } from 'util'
 import { suite, it } from 'tman'
-import { ok, strictEqual, deepEqual, throws, equal } from 'assert'
+import { ok, strictEqual, throws, equal } from 'assert'
 
+import { bufferFromBytes } from './common'
+import { BufferVisitor, toBuffer } from '../src/internal/common'
 import {
   ConnectionID, PacketNumber, StreamID, SocketAddress, Offset, QuicTags, Tag,
 } from '../src/internal/protocol'
-import { BufferVisitor, toBuffer } from '../src/internal/common'
-
-import { bufferFromBytes } from './common'
 
 suite('QUIC Protocol', function () {
   suite('ConnectionID', function () {
@@ -263,13 +261,11 @@ suite('QUIC Protocol', function () {
     it('SocketAddress, IPv6', function () {
       let socketAddress = new SocketAddress(
         { port: 65534, family: 'IPv6', address: '::1' })
-      strictEqual(socketAddress.address, '0:0:0:0:0:0:0:1')
       const res = SocketAddress.fromBuffer(new BufferVisitor(toBuffer(socketAddress)))
       ok(socketAddress.equals(res))
 
       socketAddress = new SocketAddress({
         address: '2001:700:300:1800::', family: 'IPv6', port: 0x5678})
-      strictEqual(socketAddress.address, '2001:700:300:1800:0:0:0:0')
       ok(socketAddress.equals(SocketAddress.fromBuffer(new BufferVisitor(toBuffer(socketAddress)))))
 
       socketAddress = new SocketAddress({
@@ -592,12 +588,12 @@ suite('QUIC Protocol', function () {
 
       const quicTag = QuicTags.fromBuffer(new BufferVisitor(buf))
       strictEqual(quicTag.size, 18)
-      strictEqual(quicTag.get(Tag.PAD).length, 993)
-      strictEqual(quicTag.get(Tag.SNI).toString(), 'quic.clemente.io')
-      strictEqual(quicTag.get(Tag.VER).toString(), 'Q039')
-      strictEqual(quicTag.get(Tag.UAID).toString(), 'Chrome/66.0.3359.139 Intel Mac OS X 10_13_4')
-      strictEqual(quicTag.get(Tag.COPT).toString(), '')
-      strictEqual(quicTag.get(Tag.PDMD).toString(), 'X509')
+      strictEqual((quicTag.get(Tag.PAD) as Buffer).length, 993)
+      strictEqual((quicTag.get(Tag.SNI) as Buffer).toString(), 'quic.clemente.io')
+      strictEqual((quicTag.get(Tag.VER) as Buffer).toString(), 'Q039')
+      strictEqual((quicTag.get(Tag.UAID) as Buffer).toString(), 'Chrome/66.0.3359.139 Intel Mac OS X 10_13_4')
+      strictEqual((quicTag.get(Tag.COPT) as Buffer).toString(), '')
+      strictEqual((quicTag.get(Tag.PDMD) as Buffer).toString(), 'X509')
       // ok(toBuffer(quicTag).equals(buf)) sort it?
     })
   })

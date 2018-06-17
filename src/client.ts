@@ -5,8 +5,8 @@
 
 import { debuglog } from 'util'
 import { MaxReceivePacketSize, MaxPacketSizeIPv4, MaxPacketSizeIPv6 } from './internal/constant'
-import { lookup, BufferVisitor } from './internal/common'
-import { QuicError } from './internal/error'
+import { dnsLookup, BufferVisitor } from './internal/common'
+import { QuicError, QUICError } from './internal/error'
 import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import {
   FamilyType,
@@ -17,6 +17,7 @@ import {
   chooseVersion,
 } from './internal/protocol'
 import {
+  kHS,
   kSocket,
   kState,
   kVersion,
@@ -26,19 +27,52 @@ import {
 } from './internal/symbol'
 
 import { createSocket, AddressInfo, Socket } from './socket'
+import { ClientHandShake } from './handshake'
 import { Session } from './session'
+import { Stream } from './stream'
 
 const debug = debuglog('quic')
-// const _SCFGCache = new Map<string, {}>()
+
+export declare interface Client {
+  addListener (event: "error", listener: (err: Error) => void): this
+  addListener (event: "goaway", listener: (err: QUICError) => void): this
+  addListener (event: "close", listener: (err?: Error) => void): this
+  addListener (event: "timeout" | "connect", listener: () => void): this
+  addListener (event: "stream", listener: (stream: Stream) => void): this
+  addListener (event: "version", listener: (ver: string) => void): this
+
+  emit (event: "error", err: Error): boolean
+  emit (event: "goaway", err: QUICError): boolean
+  emit (event: "close", err?: Error): boolean
+  emit (event: "timeout" | "connect"): boolean
+  emit (event: "stream", stream: Stream): boolean
+  emit (event: "version", ver: string): boolean
+
+  on (event: "error", listener: (err: Error) => void): this
+  on (event: "goaway", listener: (err: QUICError) => void): this
+  on (event: "close", listener: (err?: Error) => void): this
+  on (event: "timeout" | "connect", listener: () => void): this
+  on (event: "stream", listener: (stream: Stream) => void): this
+  on (event: "version", listener: (ver: string) => void): this
+
+  once (event: "error", listener: (err: Error) => void): this
+  once (event: "goaway", listener: (err: QUICError) => void): this
+  once (event: "close", listener: (err?: Error) => void): this
+  once (event: "timeout" | "connect", listener: () => void): this
+  once (event: "stream", listener: (stream: Stream) => void): this
+  once (event: "version", listener: (ver: string) => void): this
+}
 
 //
 // *************** Client ***************
 //
 export class Client extends Session {
   [kClientState]: ClientState
+  [kHS]: ClientHandShake
   constructor () {
     super(ConnectionID.random(), SessionType.CLIENT)
     this[kVersion] = getVersion()
+    this[kHS] = new ClientHandShake(this)
     this[kClientState] = new ClientState()
     this[kIntervalCheck] = setInterval(() => {
       const time = Date.now()
@@ -95,7 +129,7 @@ export class Client extends Session {
     if (socket == null || socket[kState].destroyed) {
       throw new Error('the underlying socket destroyed')
     }
-    const addr = await lookup(address)
+    const addr = await dnsLookup(address)
     debug(`client connect: %s, %d, %j`, address, port, addr)
 
     const client = new Client()
@@ -106,17 +140,26 @@ export class Client extends Session {
     client[kState].localFamily = this[kState].localFamily
     client[kState].localAddress = this[kState].localAddress
     client[kState].localPort = this[kState].localPort
-    client[kState].localAddr = new SocketAddress(socket.address())
+    client[kState].localAddr = new SocketAddress(socket.address() as AddressInfo)
     client[kState].remotePort = port
     client[kState].remoteAddress = addr.address
     client[kState].remoteFamily = 'IPv' + addr.family
     client[kState].remoteAddr =
       new SocketAddress({ port, address: addr.address, family: `IPv${addr.family}` })
     client[kState].maxPacketSize = this[kState].maxPacketSize
+
+    await new Promise((resolve, reject) => {
+      client[kHS].once('secureConnection', () => {
+        client.removeListener('error', reject)
+        resolve()
+      })
+      client.once('error', reject)
+      client[kHS].setup()
+    })
     return client
   }
 
-  async connect (port: number, address: string = 'localhost'): Promise<any> {
+  async connect (port: number, address: string = 'localhost'): Promise<void> {
     if (this[kState].destroyed) {
       throw new Error('Client destroyed')
     }
@@ -124,7 +167,7 @@ export class Client extends Session {
       throw new Error('Client connecting duplicated')
     }
 
-    const addr = await lookup(address)
+    const addr = await dnsLookup(address)
 
     debug(`client connect: %s, %d, %j`, address, port, addr)
     this[kState].remotePort = port
@@ -134,7 +177,7 @@ export class Client extends Session {
     this[kState].maxPacketSize =
       this[kState].localFamily === FamilyType.IPv6 ? MaxPacketSizeIPv6 : MaxPacketSizeIPv4
 
-    const socket = this[kSocket] = createSocket(addr.family)
+    const socket = this[kSocket] = createSocket<Client>(addr.family)
     socket[kState].conns.set(this.id, this)
     socket
       .on('error', (err) => this.emit('error', err))
@@ -145,19 +188,25 @@ export class Client extends Session {
       socket.once('listening', () => {
         socket.removeListener('error', reject)
 
-        const localAddr = socket.address()
+        const localAddr = socket.address() as AddressInfo
         this[kState].localFamily = localAddr.family
         this[kState].localAddress = localAddr.address
         this[kState].localPort = localAddr.port
         this[kState].localAddr = new SocketAddress(localAddr)
 
-        resolve()
-        this.emit('connect')
+        this[kHS].once('secureConnection', () => {
+          this.removeListener('error', reject)
+
+          process.nextTick(() => this.emit('connect'))
+          resolve()
+        })
+        this[kHS].setup()
       })
+      this.once('error', reject)
       socket.once('error', reject)
     })
     socket.bind({ exclusive: true, port: 0 })
-    return res
+    await res
   }
 }
 
@@ -170,7 +219,7 @@ export class ClientState {
   }
 }
 
-function socketOnMessage (this: Socket, msg: Buffer, rinfo: AddressInfo) {
+function socketOnMessage (this: Socket<Client>, msg: Buffer, rinfo: AddressInfo) {
   if (msg.length === 0 || this[kState].destroyed) {
     return
   }
@@ -255,5 +304,10 @@ function socketOnMessage (this: Socket, msg: Buffer, rinfo: AddressInfo) {
   }
 
   client[kState].bytesRead += msg.length
-  client._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
+  try {
+    client._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
+  } catch (err) {
+    debug(`CLIENT session %s - handle RegularPacket error: %o`, client.id, err)
+    client.destroy(QuicError.fromError(err))
+  }
 }

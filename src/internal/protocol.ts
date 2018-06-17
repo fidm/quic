@@ -5,11 +5,11 @@
 
 import { inspect } from 'util'
 import { randomBytes } from 'crypto'
-import { AddressInfo } from 'dgram'
-import { QuicError } from './error'
-
-import { kVal } from './symbol'
+import { AddressInfo } from 'net'
+import { bytesFromIP, bytesToIP } from '@fidm/x509'
 import { Visitor, BufferVisitor, readUnsafeUInt, writeUnsafeUInt  } from './common'
+import { QuicError } from './error'
+import { kVal } from './symbol'
 
 const QUIC_VERSIONS = ['Q039']
 
@@ -386,27 +386,13 @@ export class SocketAddress extends Protocol {
     if (family === 0x02) {
       obj.family = FamilyType.IPv4
       bufv.mustWalk(4, 'QUIC_INTERNAL_ERROR')
-      obj.address = [
-        bufv.buf.readUInt8(bufv.start),
-        bufv.buf.readUInt8(bufv.start + 1),
-        bufv.buf.readUInt8(bufv.start + 2),
-        bufv.buf.readUInt8(bufv.start + 3),
-      ].join('.')
+      obj.address = bytesToIP(bufv.buf.slice(bufv.start, bufv.end))
       bufv.mustWalk(2, 'QUIC_INTERNAL_ERROR')
       obj.port = bufv.buf.readUInt16BE(bufv.start)
     } else if (family === 0x0a) {
       obj.family = FamilyType.IPv6
       bufv.mustWalk(16, 'QUIC_INTERNAL_ERROR')
-      obj.address = [
-        bufv.buf.readUInt16BE(bufv.start).toString(16),
-        bufv.buf.readUInt16BE(bufv.start + 2).toString(16),
-        bufv.buf.readUInt16BE(bufv.start + 4).toString(16),
-        bufv.buf.readUInt16BE(bufv.start + 6).toString(16),
-        bufv.buf.readUInt16BE(bufv.start + 8).toString(16),
-        bufv.buf.readUInt16BE(bufv.start + 10).toString(16),
-        bufv.buf.readUInt16BE(bufv.start + 12).toString(16),
-        bufv.buf.readUInt16BE(bufv.start + 14).toString(16),
-      ].join(':')
+      obj.address = bytesToIP(bufv.buf.slice(bufv.start, bufv.end))
       bufv.mustWalk(2, 'QUIC_INTERNAL_ERROR')
       obj.port = bufv.buf.readUInt16BE(bufv.start)
     } else {
@@ -422,25 +408,11 @@ export class SocketAddress extends Protocol {
     if (!isAddress(obj)) {
       throw new Error(`invalid Socket Address ${JSON.stringify(obj)}`)
     }
-
-    let address = obj.address
-    if (address.includes('::')) {
-      const unfold = '0:'
-      if (address.startsWith('::')) {
-        address = '0' + address
-      } else if (address.endsWith('::')) {
-        address += '0'
-      }
-      const _address = address.split(':')
-      _address[_address.indexOf('')] = unfold.repeat(9 - _address.length).slice(0, -1)
-      address = _address.join(':')
-    }
-
-    super(address)
+    super(obj.address)
 
     this.port = obj.port
     this.family = obj.family as FamilyType
-    this.address = address
+    this.address = obj.address
   }
 
   valueOf () {
@@ -463,23 +435,26 @@ export class SocketAddress extends Protocol {
   }
 
   writeTo (bufv: BufferVisitor): BufferVisitor {
-    const address = this.address
     if (this.family === FamilyType.IPv4) {
       bufv.walk(2)
       bufv.buf.writeUInt16BE(0x02, bufv.start)
-      for (const val of address.split('.')) {
-        bufv.walk(1)
-        bufv.buf.writeUInt8(parseInt(val, 10), bufv.start)
+      const buf = bytesFromIP(this.address)
+      if (buf == null || buf.length !== 4) {
+        throw new Error(`Invalid IPv4 address ${this.address}`)
       }
+      bufv.walk(4)
+      buf.copy(bufv.buf, bufv.start, 0, 4)
       bufv.walk(2)
       bufv.buf.writeUInt16BE(this.port, bufv.start)
     } else {
       bufv.walk(2)
       bufv.buf.writeUInt16BE(0x0a, bufv.start)
-      for (const val of address.split(':')) {
-        bufv.walk(2)
-        bufv.buf.writeUInt16BE(parseInt(val, 16), bufv.start)
+      const buf = bytesFromIP(this.address)
+      if (buf == null || buf.length !== 16) {
+        throw new Error(`Invalid IPv6 address ${this.address}`)
       }
+      bufv.walk(16)
+      buf.copy(bufv.buf, bufv.start, 0, 16)
       bufv.walk(2)
       bufv.buf.writeUInt16BE(this.port, bufv.start)
     }
@@ -548,8 +523,9 @@ export class QuicTags extends Protocol {
     this.tags.set(key, val)
   }
 
-  get (key: Tag): Buffer | undefined {
-    return this.tags.get(key)
+  get (key: Tag): Buffer | null {
+    const buf = this.tags.get(key)
+    return buf == null ? null : buf
   }
 
   has (key: Tag): boolean {

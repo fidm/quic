@@ -5,19 +5,14 @@
 // **License:** MIT
 
 import { suite, it } from 'tman'
-import { ok, strictEqual, deepEqual, throws } from 'assert'
-
-import { BufferVisitor, toBuffer } from '../../src/internal/common'
-import { QuicError } from '../../src/internal/error'
-import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
-import {
-  parseFrame, StreamFrame, AckFrame, AckRange, PaddingFrame,
-  RstStreamFrame, ConnectionCloseFrame, GoAwayFrame,
-  WindowUpdateFrame, BlockedFrame, StopWaitingFrame,
-  PingFrame, CongestionFeedbackFrame,
-} from '../../src/internal/frame'
+import { ok, strictEqual } from 'assert'
 
 import { bufferFromBytes } from '../common'
+import { BufferVisitor, toBuffer } from '../../src/internal/common'
+import { StreamID, Offset, PacketNumber } from '../../src/internal/protocol'
+import {
+  parseFrame, WindowUpdateFrame,
+} from '../../src/internal/frame'
 
 suite('WINDOW_UPDATE Frame', function () {
   it('new WindowUpdateFrame with StreamID', function () {

@@ -6,10 +6,11 @@
 import { suite, it } from 'tman'
 import { ok, equal, deepEqual } from 'assert'
 
+import { bufferFromBytes } from './common'
 import { toBuffer, BufferVisitor } from '../src/internal/common'
 import {
   getVersion, getVersions, isSupportedVersion,
-  PacketNumber, ConnectionID, SocketAddress, SessionType, QuicTags, Tag,
+  PacketNumber, ConnectionID, SessionType, QuicTags, Tag, SocketAddress,
 } from '../src/internal/protocol'
 import {
   parsePacket, ResetPacket, NegotiationPacket,
@@ -18,8 +19,6 @@ import {
 import {
   PaddingFrame, PingFrame,
 } from '../src/internal/frame'
-
-import { bufferFromBytes } from './common'
 
 suite('QUIC Packet', function () {
   suite('ResetPacket', function () {
@@ -47,9 +46,9 @@ suite('QUIC Packet', function () {
       ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
-      ok(resetPacket.packetNumber.equals(res.packetNumber))
       ok(resetPacket.nonceProof.equals(res.nonceProof))
-      ok(resetPacket.socketAddress.equals(res.socketAddress))
+      ok(resetPacket.packetNumber != null && resetPacket.packetNumber.equals(res.packetNumber as PacketNumber))
+      ok(resetPacket.socketAddress != null && resetPacket.socketAddress.equals(res.socketAddress as SocketAddress))
     })
 
     it('parse with parsePacket', function () {
@@ -76,9 +75,9 @@ suite('QUIC Packet', function () {
       ok(res instanceof ResetPacket)
       ok(resetPacket.flag === res.flag)
       ok(resetPacket.connectionID.equals(res.connectionID))
-      ok(resetPacket.packetNumber.equals(res.packetNumber))
       ok(resetPacket.nonceProof.equals(res.nonceProof))
-      ok(resetPacket.socketAddress.equals(res.socketAddress))
+      ok(resetPacket.packetNumber != null && resetPacket.packetNumber.equals(res.packetNumber as PacketNumber))
+      ok(resetPacket.socketAddress != null && resetPacket.socketAddress.equals(res.socketAddress as SocketAddress))
     })
   })
 

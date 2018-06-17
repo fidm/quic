@@ -7,11 +7,12 @@ import { debuglog } from 'util'
 import { EventEmitter } from 'events'
 
 import { MaxReceivePacketSize, MaxPacketSizeIPv4, MaxPacketSizeIPv6 } from './internal/constant'
-import { lookup, BufferVisitor } from './internal/common'
+import { dnsLookup, BufferVisitor } from './internal/common'
 import { QuicError } from './internal/error'
 import { parsePacket, NegotiationPacket, RegularPacket } from './internal/packet'
 import {
   kID,
+  kHS,
   kConns,
   kSocket,
   kState,
@@ -26,18 +27,22 @@ import {
   ConnectionID,
   isSupportedVersion,
 } from './internal/protocol'
+import { SourceToken } from './internal/crypto'
 
 import { createSocket, Socket, AddressInfo } from './socket'
+import { ServerHandShake, ServerConfig } from './handshake'
 import { Session } from './session'
 
 const debug = debuglog('quic')
 
 export class ServerSession extends Session {
+  [kHS]: ServerHandShake
   [kServer]: Server
-  constructor (id: ConnectionID, socket: Socket, server: Server) {
+  constructor (id: ConnectionID, socket: Socket<ServerSession>, server: Server) {
     super(id, SessionType.SERVER)
     this[kSocket] = socket
     this[kServer] = server
+    this[kHS] = new ServerHandShake(this, server[kState].sourceToken, server[kState].scfg)
     this[kState].localPort = server.localPort
     this[kState].localAddress = server.localAddress
     this[kState].localFamily = server.localFamily
@@ -53,20 +58,43 @@ export class ServerSession extends Session {
 
 export class ServerState {
   destroyed: boolean
+  scfg: ServerConfig
+  sourceToken: SourceToken
 
   constructor () {
     this.destroyed = false
+    this.scfg = new ServerConfig(null)
+    this.sourceToken = new SourceToken()
   }
+}
+
+export declare interface Server {
+  addListener (event: "error", listener: (err: Error) => void): this
+  addListener (event: "close", listener: (err?: Error) => void): this
+  addListener (event: "listening", listener: () => void): this
+  addListener (event: "session", listener: (session: Session) => void): this
+
+  emit (event: "error", err: Error): boolean
+  emit (event: "close", err?: Error): boolean
+  emit (event: "listening"): boolean
+  emit (event: "session", session: Session): boolean
+
+  on (event: "error", listener: (err: Error) => void): this
+  on (event: "close", listener: (err?: Error) => void): this
+  on (event: "listening", listener: () => void): this
+  on (event: "session", listener: (session: Session) => void): this
+
+  once (event: "error", listener: (err: Error) => void): this
+  once (event: "close", listener: (err?: Error) => void): this
+  once (event: "listening", listener: () => void): this
+  once (event: "session", listener: (session: Session) => void): this
 }
 
 //
 // *************** Server ***************
 //
 export class Server extends EventEmitter {
-  // Event: 'listening'
-  // Event: 'connection'
-
-  [kSocket]: Socket | null
+  [kSocket]: Socket<ServerSession> | null
   [kState]: ServerState
   localFamily: string
   localAddress: string
@@ -98,10 +126,10 @@ export class Server extends EventEmitter {
       throw new Error('Server listening')
     }
 
-    const addr = await lookup(address)
+    const addr = await dnsLookup(address)
     debug(`server listen: ${address}, ${port}`, addr)
 
-    const socket = this[kSocket] = createSocket(addr.family)
+    const socket = this[kSocket] = createSocket<ServerSession>(addr.family)
     socket[kState].exclusive = false // socket is shared between all sessions
     socket
       .on('error', (err) => this.emit('error', err))
@@ -112,7 +140,7 @@ export class Server extends EventEmitter {
       socket.once('listening', () => {
         socket.removeListener('error', reject)
 
-        const localAddr = socket.address()
+        const localAddr = socket.address() as AddressInfo
         this.localFamily = localAddr.family
         this.localAddress = localAddr.address
         this.localPort = localAddr.port
@@ -207,7 +235,7 @@ function serverOnClose (server: Server) {
   }
 }
 
-function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: AddressInfo) {
+function serverOnMessage (server: Server, socket: Socket<any>, msg: Buffer, rinfo: AddressInfo) {
   if (msg.length === 0 || server[kState].destroyed) {
     return
   }
@@ -271,10 +299,6 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
   session[kState].remoteFamily = senderAddr.family
   session[kState].remoteAddr = senderAddr
 
-  if (newSession) {
-    server.emit('session', session)
-  }
-
   const version = (packet as RegularPacket).version
   if (!session[kState].versionNegotiated) {
     if (!isSupportedVersion(version)) {
@@ -294,6 +318,16 @@ function serverOnMessage (server: Server, socket: Socket, msg: Buffer, rinfo: Ad
     return
   }
 
+  if (newSession) {
+    server.emit('session', session)
+    // session[kHS].once('secureConnection', () => server.emit('session', session))
+  }
+
   session[kState].bytesRead += msg.length
-  session._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
+  try {
+    session._handleRegularPacket(packet as RegularPacket, rcvTime, bufv)
+  } catch (err) {
+    debug(`SERVER session %s - handle RegularPacket error: %o`, session.id, err)
+    session.destroy(QuicError.fromError(err))
+  }
 }

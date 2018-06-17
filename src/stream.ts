@@ -16,20 +16,37 @@ import {
   Offset,
   StreamID,
 } from './internal/protocol'
-import { StreamFrame, RstStreamFrame, BlockedFrame } from './internal/frame'
-import { StreamFlowController } from './internal/flowcontrol'
+import { Frame, StreamFrame, RstStreamFrame, BlockedFrame } from './internal/frame'
+import { StreamFlowController, ConnectionFlowController } from './internal/flowcontrol'
+import { RTTStats } from './internal/congestion'
 import { BufferVisitor } from './internal/common'
+import { Packet, RegularPacket } from './internal/packet'
 import {
   kID,
   kFC,
+  kVersion,
   kSession,
   kState,
   kRTT,
 } from './internal/symbol'
 
-import { Session } from './session'
-
 const debug = debuglog('quic:stream')
+
+// avoid circular references
+export interface SessionRef {
+  id: string
+  isClient: boolean
+  [kVersion]: string
+  [kFC]: ConnectionFlowController
+  [kRTT]: RTTStats
+  _stateMaxPacketSize: number
+  request (options?: any): Stream
+  _stateDecreaseStreamCount (): void
+  _sendFrame (frame: Frame, callback?: (...args: any[]) => void): void
+  _sendWindowUpdate (offset: Offset, streamID?: StreamID): void
+  _newRegularPacket (): RegularPacket
+  _sendPacket (packet: Packet, callback?: (...args: any[]) => void): void
+}
 
 export class Stream extends Duplex {
   // Event: 'close'
@@ -44,10 +61,10 @@ export class Stream extends Duplex {
   // Event: 'frameError'
 
   private [kID]: StreamID
-  private [kSession]: Session
+  private [kSession]: SessionRef
   private [kState]: StreamState
   private [kFC]: StreamFlowController
-  constructor (streamID: StreamID, session: Session, options: any) {
+  constructor (streamID: StreamID, session: SessionRef, options: any) {
     options.allowHalfOpen = true
     options.objectMode = false
     super(options)
@@ -65,10 +82,6 @@ export class Stream extends Duplex {
   // The socket owned by this session
   get id (): number {
     return this[kID].valueOf()
-  }
-
-  get session (): Session {
-    return this[kSession]
   }
 
   get aborted (): boolean {
@@ -174,7 +187,7 @@ export class Stream extends Duplex {
   _destroy (err: any, callback: (...args: any[]) => void) {
     debug(`stream %s - stream destroyed, error: %j`, this.id, err)
 
-    this[kSession][kState].liveStreamCount -= 1
+    this[kSession]._stateDecreaseStreamCount()
     const state = this[kState]
     state.localFIN = true
     state.remoteFIN = true
@@ -255,7 +268,7 @@ export class Stream extends Duplex {
       return
     }
 
-    if (entry.data != null && !this._isRemoteWriteable(this[kSession][kState].maxPacketSize)) {
+    if (entry.data != null && !this._isRemoteWriteable(this[kSession]._stateMaxPacketSize)) {
       return
     }
 
@@ -294,7 +307,7 @@ export class Stream extends Duplex {
 
     if (bufv != null) {
       byteLen = Math.min(bufv.length - bufv.end,
-          this[kSession][kState].maxPacketSize - packet.headerLen() - streamFrame.headerLen(true))
+          this[kSession]._stateMaxPacketSize - packet.headerLen() - streamFrame.headerLen(true))
 
       bufv.walk(byteLen)
       nextByteLen = Math.min(byteLen, bufv.length - bufv.end)

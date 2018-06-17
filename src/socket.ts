@@ -11,23 +11,17 @@ import { Packet } from './internal/packet'
 import { QuicError } from './internal/error'
 import { BufferVisitor } from './internal/common'
 import { MaxReceivePacketSize } from './internal/constant'
-import { Client } from './client';
 
-export interface AddressInfo {
-  address: string;
-  family: string;
-  port: number;
+export { AddressInfo } from 'net'
+export interface Socket<T> extends UDPSocket {
+  [kState]: SocketState<T>
+  sendPacket (packet: Packet, remotePort: number, remoteAddr: string, callback: (err: any) => void): void
 }
 
-// BufferVisitor is a buffer wrapped by Visitor
-export interface Socket extends UDPSocket {
-  [kState]: SocketState
-}
-
-export class SocketState {
+export class SocketState<T> {
   exclusive: boolean // is shared between all sessions or not
   destroyed: boolean
-  conns: Map<string, Client>
+  conns: Map<string, T>
   constructor () {
     this.exclusive = true
     this.destroyed = false
@@ -35,25 +29,34 @@ export class SocketState {
   }
 }
 
-export function createSocket (family: number): Socket {
+export function createSocket<T> (family: number): Socket<T> {
   const socket = createUDP(family === 6 ? 'udp6' : 'udp4')
-  const state = new SocketState()
+  const state = new SocketState<T>()
 
   socket.once('close', () => {
     state.destroyed = true
     socket.removeAllListeners()
   })
-  Object.assign(socket, { [kState]: state })
-  return socket as Socket
+  Object.assign(socket, {
+    [kState]: state,
+    sendPacket,
+  })
+  return socket as Socket<T>
 }
 
 const bufferPool: BufferVisitor[] = []
-export function sendPacket (socket: Socket, packet: Packet, remotePort: number, remoteAddr: string, callback: (err: any) => void) {
+
+function sendPacket<T> (
+  this: Socket<T>,
+  packet: Packet,
+  remotePort: number,
+  remoteAddr: string,
+  callback: (err: any) => void) {
   const byteLen = packet.byteLen()
   if (byteLen > MaxReceivePacketSize) {
     return callback(new QuicError('packet size too large!'))
   }
-  if (socket[kState].destroyed) {
+  if (this[kState].destroyed) {
     return callback(new QuicError('socket destroyed!'))
   }
 
@@ -64,7 +67,7 @@ export function sendPacket (socket: Socket, packet: Packet, remotePort: number, 
     bufv.reset()
   }
   packet.writeTo(bufv)
-  socket.send(bufv.buf, 0, bufv.end, remotePort, remoteAddr, (err: any) => {
+  this.send(bufv.buf, 0, bufv.end, remotePort, remoteAddr, (err: any) => {
     packet.sentTime = Date.now()
     bufferPool.push(bufv as BufferVisitor)
     callback(QuicError.checkAny(err))

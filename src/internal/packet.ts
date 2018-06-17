@@ -4,8 +4,8 @@
 // **License:** MIT
 
 import { inspect } from 'util'
-import { QuicError } from './error'
 import { BufferVisitor } from './common'
+import { QuicError } from './error'
 import { parseFrame, Frame } from './frame'
 
 import {

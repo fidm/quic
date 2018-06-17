@@ -8,10 +8,9 @@ import { join } from 'path'
 import { suite, it } from 'tman'
 import { ok, strictEqual, deepEqual } from 'assert'
 
-import { QuicError } from '../src/internal/error'
-import { BufferVisitor, toBuffer } from '../src/internal/common'
-
 import { bufferFromBytes } from './common'
+import { BufferVisitor, toBuffer } from '../src/internal/common'
+import { QuicError } from '../src/internal/error'
 
 suite('QUIC errors', function () {
   it('new QuicError(0)', function () {
@@ -19,7 +18,7 @@ suite('QUIC errors', function () {
     strictEqual(err.code, 0)
     strictEqual(err.name, 'QUIC_NO_ERROR')
     strictEqual(err.message, '')
-    ok(err.stack.includes(join('test', 'error.ts')))
+    ok(err.stack != null && err.stack.includes(join('test', 'error.ts')))
     ok(toBuffer(err).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x0])))
     deepEqual(err, new QuicError('QUIC_NO_ERROR'))
   })
@@ -29,7 +28,7 @@ suite('QUIC errors', function () {
     strictEqual(err.code, 1)
     strictEqual(err.name, 'QUIC_INTERNAL_ERROR')
     strictEqual(err.message, 'Connection has reached an invalid state.')
-    ok(err.stack.includes(join('test', 'error.ts')))
+    ok(err.stack != null && err.stack.includes(join('test', 'error.ts')))
     ok(toBuffer(err).equals(bufferFromBytes([0x0, 0x0, 0x0, 0x1])))
     deepEqual(err, new QuicError('QUIC_INTERNAL_ERROR'))
   })
@@ -39,7 +38,7 @@ suite('QUIC errors', function () {
     strictEqual(err.code, 0xffffffff)
     strictEqual(err.name, 'INVALID_ERROR_CODE')
     strictEqual(err.message, 'xxxxxxxx')
-    ok(err.stack.includes(join('test', 'error.ts')))
+    ok(err.stack != null && err.stack.includes(join('test', 'error.ts')))
     ok(toBuffer(err).equals(bufferFromBytes([0xff, 0xff, 0xff, 0xff])))
   })
 
