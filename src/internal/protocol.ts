@@ -123,7 +123,9 @@ export class ConnectionID extends Protocol {
   }
 }
 
-/** PacketNumber representing a packetNumber. */
+/**
+ * PacketNumber representing a packetNumber.
+ */
 export class PacketNumber extends Protocol {
   // The lower 8, 16, 32, or 48 bits of the packet number, based on which
   // FLAG_?BYTE_SEQUENCE_NUMBER flag is set in the public flags.
@@ -216,7 +218,9 @@ export class PacketNumber extends Protocol {
   }
 }
 
-/** StreamID representing a streamID. */
+/**
+ * StreamID representing a streamID.
+ */
 export class StreamID extends Protocol {
   // the Stream-ID must be even if the server initiates the stream, and odd if the client initiates the stream.
   // 0 is not a valid Stream-ID. Stream 1 is reserved for the crypto handshake,
@@ -292,7 +296,9 @@ export class StreamID extends Protocol {
   }
 }
 
-/** Offset representing a data offset. */
+/**
+ * Offset representing a data offset.
+ */
 export class Offset extends Protocol {
   /**
    * 3 bits -> 0, 16/8, 24/8, 32/8, 40/8, 48/8, 56/8, 64/8
@@ -372,7 +378,9 @@ export class Offset extends Protocol {
   }
 }
 
-/** SocketAddress representing a socket address. */
+/**
+ * SocketAddress representing a socket address.
+ */
 export class SocketAddress extends Protocol {
   static fromBuffer (bufv: BufferVisitor): SocketAddress {
     const obj: AddressInfo = {
@@ -466,7 +474,9 @@ export class SocketAddress extends Protocol {
   }
 }
 
-/** QuicTags representing a QUIC tag. */
+/**
+ * QuicTags representing a QUIC tag.
+ */
 export class QuicTags extends Protocol {
   static fromBuffer (bufv: BufferVisitor): QuicTags {
     bufv.mustWalk(4, 'QUIC_INTERNAL_ERROR')
@@ -592,171 +602,525 @@ export class QuicTags extends Protocol {
 }
 
 export enum Tag {
-  CHLO = toTag('C', 'H', 'L', 'O'), // Client hello
-  SHLO = toTag('S', 'H', 'L', 'O'), // Server hello
-  SCFG = toTag('S', 'C', 'F', 'G'), // Server config
-  REJ  = toTag('R', 'E', 'J', '\u{0}'),  // Reject
-  SREJ = toTag('S', 'R', 'E', 'J'), // Stateless reject
-  CETV = toTag('C', 'E', 'T', 'V'), // Client encrypted tag-value pairs
-  PRST = toTag('P', 'R', 'S', 'T'), // Public reset
-  SCUP = toTag('S', 'C', 'U', 'P'), // Server config update
-  ALPN = toTag('A', 'L', 'P', 'N'), // Application-layer protocol
+  /**
+   * Client hello
+   */
+  CHLO = toTag('C', 'H', 'L', 'O'),
+  /**
+   * Server hello
+   */
+  SHLO = toTag('S', 'H', 'L', 'O'),
+  /**
+   * Server config
+   */
+  SCFG = toTag('S', 'C', 'F', 'G'),
+  /**
+   * Reject
+   */
+  REJ  = toTag('R', 'E', 'J', '\u{0}'),
+  /**
+   * Stateless reject
+   */
+  SREJ = toTag('S', 'R', 'E', 'J'),
+  /**
+   * Client encrypted tag-value pairs
+   */
+  CETV = toTag('C', 'E', 'T', 'V'),
+  /**
+   * Public reset
+   */
+  PRST = toTag('P', 'R', 'S', 'T'),
+  /**
+   * Server config update
+   */
+  SCUP = toTag('S', 'C', 'U', 'P'),
+  /**
+   * Application-layer protocol
+   */
+  ALPN = toTag('A', 'L', 'P', 'N'),
 
   // Key exchange methods
-  P256 = toTag('P', '2', '5', '6'), // ECDH, Curve P-256
-  C255 = toTag('C', '2', '5', '5'), // ECDH, Curve25519
+  /**
+   * ECDH, Curve P-256
+   */
+  P256 = toTag('P', '2', '5', '6'),
+  /**
+   * ECDH, Curve25519
+   */
+  C255 = toTag('C', '2', '5', '5'),
 
   // AEAD algorithms
-  AESG = toTag('A', 'E', 'S', 'G'), // AES128 + GCM-12
-  CC20 = toTag('C', 'C', '2', '0'), // ChaCha20 + Poly1305 RFC7539
+  /**
+   * AES128 + GCM-12
+   */
+  AESG = toTag('A', 'E', 'S', 'G'),
+  /**
+   * ChaCha20 + Poly1305 RFC7539
+   */
+  CC20 = toTag('C', 'C', '2', '0'),
 
   // Socket receive buffer
-  SRBF = toTag('S', 'R', 'B', 'F'), // Socket receive buffer
+  /**
+   * Socket receive buffer
+   */
+  SRBF = toTag('S', 'R', 'B', 'F'),
 
   // Congestion control feedback types
-  QBIC = toTag('Q', 'B', 'I', 'C'), // TCP cubic
+  /**
+   * TCP cubic
+   */
+  QBIC = toTag('Q', 'B', 'I', 'C'),
 
   // Connection options (COPT) values
-  AFCW = toTag('A', 'F', 'C', 'W'), // Auto-tune flow control receive windows.
-  IFW5 = toTag('I', 'F', 'W', '5'), // Set initial size of stream flow control receive window to 32KB. (2^5 KB).
-  IFW6 = toTag('I', 'F', 'W', '6'), // Set initial size of stream flow control receive window to 64KB. (2^6 KB).
-  IFW7 = toTag('I', 'F', 'W', '7'), // Set initial size of stream flow control receive window to 128KB. (2^7 KB).
-  IFW8 = toTag('I', 'F', 'W', '8'), // Set initial size of stream flow control receive window to 256KB. (2^8 KB).
-  IFW9 = toTag('I', 'F', 'W', '9'), // Set initial size of stream flow control receive window to 512KB. (2^9 KB).
-  IFWA = toTag('I', 'F', 'W', 'a'), // Set initial size of stream flow control receive window to 1MB. (2^0xa KB).
-  TBBR = toTag('T', 'B', 'B', 'R'), // Reduced Buffer Bloat TCP
-  '1RTT' = toTag('1', 'R', 'T', 'T'), // STARTUP in BBR for 1 RTT
-  '2RTT' = toTag('2', 'R', 'T', 'T'), // STARTUP in BBR for 2 RTTs
-  LRTT = toTag('L', 'R', 'T', 'T'), // Exit STARTUP in BBR on loss
-  BBRR = toTag('B', 'B', 'R', 'R'), // Rate-based recovery in BBR
-  BBR1 = toTag('B', 'B', 'R', '1'), // Ack aggregatation v1
-  BBR2 = toTag('B', 'B', 'R', '2'), // Ack aggregatation v2
-  RENO = toTag('R', 'E', 'N', 'O'), // Reno Congestion Control
-  TPCC = toTag('P', 'C', 'C', '\u{0}'), // Performance-Oriented Congestion Control
-  BYTE = toTag('B', 'Y', 'T', 'E'), // TCP cubic or reno in bytes
-  IW03 = toTag('I', 'W', '0', '3'), // Force ICWND to 3
-  IW10 = toTag('I', 'W', '1', '0'), // Force ICWND to 10
-  IW20 = toTag('I', 'W', '2', '0'), // Force ICWND to 20
-  IW50 = toTag('I', 'W', '5', '0'), // Force ICWND to 50
-  '1CON' = toTag('1', 'C', 'O', 'N'), // Emulate a single connection
-  NTLP = toTag('N', 'T', 'L', 'P'), // No tail loss probe
-  NCON = toTag('N', 'C', 'O', 'N'), // N Connection Congestion Ctrl
-  NRTO = toTag('N', 'R', 'T', 'O'), // CWND reduction on loss
-  UNDO = toTag('U', 'N', 'D', 'O'), // Undo any pending retransmits if they're likely spurious.
-  TIME = toTag('T', 'I', 'M', 'E'), // Time based loss detection
-  ATIM = toTag('A', 'T', 'I', 'M'), // Adaptive time loss detection
-  MIN1 = toTag('M', 'I', 'N', '1'), // Min CWND of 1 packet
-  MIN4 = toTag('M', 'I', 'N', '4'), // Min CWND of 4 packets, with a min rate of 1 BDP.
-  TLPR = toTag('T', 'L', 'P', 'R'), // Tail loss probe delay of 0.5RTT.
-  ACKD = toTag('A', 'C', 'K', 'D'), // Ack decimation style acking.
-  AKD2 = toTag('A', 'K', 'D', '2'), // Ack decimation tolerating out of order packets.
-  AKD3 = toTag('A', 'K', 'D', '3'), // Ack decimation style acking with 1/8 RTT acks.
-  AKD4 = toTag('A', 'K', 'D', '4'), // Ack decimation with 1/8 RTT tolerating out of order.
-  AKDU = toTag('A', 'K', 'D', 'U'), // Unlimited number of packets receieved before acking
-  SSLR = toTag('S', 'S', 'L', 'R'), // Slow Start Large Reduction.
-  NPRR = toTag('N', 'P', 'R', 'R'), // Pace at unity instead of PRR
-  '5RTO' = toTag('5', 'R', 'T', 'O'), // Close connection on 5 RTOs
-  '3RTO' = toTag('3', 'R', 'T', 'O'), // Close connection on 3 RTOs
-  CTIM = toTag('C', 'T', 'I', 'M'), // Client timestamp in seconds since UNIX epoch.
-  DHDT = toTag('D', 'H', 'D', 'T'), // Disable HPACK dynamic table.
-  CONH = toTag('C', 'O', 'N', 'H'), // Conservative Handshake Retransmissions.
-  LFAK = toTag('L', 'F', 'A', 'K'), // Don't invoke FACK on the first ack.
-  // TODO(fayang): Remove this connection option in QUIC_VERSION_37, in which
-  // MAX_HEADER_LIST_SIZE settings frame should be supported.
-  SMHL = toTag('S', 'M', 'H', 'L'), // Support MAX_HEADER_LIST_SIZE settings frame.
-  CCVX = toTag('C', 'C', 'V', 'X'), // Fix Cubic convex bug.
-  CBQT = toTag('C', 'B', 'Q', 'T'), // Fix CubicBytes quantization.
-  BLMX = toTag('B', 'L', 'M', 'X'), // Fix Cubic BetaLastMax bug.
-  CPAU = toTag('C', 'P', 'A', 'U'), // Allow Cubic per-ack-updates.
-  NSTP = toTag('N', 'S', 'T', 'P'), // No stop waiting frames.
+  /**
+   * Auto-tune flow control receive windows.
+   */
+  AFCW = toTag('A', 'F', 'C', 'W'),
+  /**
+   * Set initial size of stream flow control receive window to 32KB. (2^5 KB).
+   */
+  IFW5 = toTag('I', 'F', 'W', '5'),
+  /**
+   * Set initial size of stream flow control receive window to 64KB. (2^6 KB).
+   */
+  IFW6 = toTag('I', 'F', 'W', '6'),
+  /**
+   * Set initial size of stream flow control receive window to 128KB. (2^7 KB).
+   */
+  IFW7 = toTag('I', 'F', 'W', '7'),
+  /**
+   * Set initial size of stream flow control receive window to 256KB. (2^8 KB).
+   */
+  IFW8 = toTag('I', 'F', 'W', '8'),
+  /**
+   * Set initial size of stream flow control receive window to 512KB. (2^9 KB).
+   */
+  IFW9 = toTag('I', 'F', 'W', '9'),
+  /**
+   * Set initial size of stream flow control receive window to 1MB. (2^0xa KB).
+   */
+  IFWA = toTag('I', 'F', 'W', 'a'),
+  /**
+   * Reduced Buffer Bloat TCP
+   */
+  TBBR = toTag('T', 'B', 'B', 'R'),
+  /**
+   * STARTUP in BBR for 1 RTT
+   */
+  '1RTT' = toTag('1', 'R', 'T', 'T'),
+  /**
+   * STARTUP in BBR for 2 RTTs
+   */
+  '2RTT' = toTag('2', 'R', 'T', 'T'),
+  /**
+   * Exit STARTUP in BBR on loss
+   */
+  LRTT = toTag('L', 'R', 'T', 'T'),
+  /**
+   * Rate-based recovery in BBR
+   */
+  BBRR = toTag('B', 'B', 'R', 'R'),
+  /**
+   * Ack aggregatation v1
+   */
+  BBR1 = toTag('B', 'B', 'R', '1'),
+  /**
+   * Ack aggregatation v2
+   */
+  BBR2 = toTag('B', 'B', 'R', '2'),
+  /**
+   * Reno Congestion Control
+   */
+  RENO = toTag('R', 'E', 'N', 'O'),
+  /**
+   * Performance-Oriented Congestion Control
+   */
+  TPCC = toTag('P', 'C', 'C', '\u{0}'),
+  /**
+   * TCP cubic or reno in bytes
+   */
+  BYTE = toTag('B', 'Y', 'T', 'E'),
+  /**
+   * Force ICWND to 3
+   */
+  IW03 = toTag('I', 'W', '0', '3'),
+  /**
+   * Force ICWND to 10
+   */
+  IW10 = toTag('I', 'W', '1', '0'),
+  /**
+   * Force ICWND to 20
+   */
+  IW20 = toTag('I', 'W', '2', '0'),
+  /**
+   * Force ICWND to 50
+   */
+  IW50 = toTag('I', 'W', '5', '0'),
+  /**
+   * Emulate a single connection
+   */
+  '1CON' = toTag('1', 'C', 'O', 'N'),
+  /**
+   * No tail loss probe
+   */
+  NTLP = toTag('N', 'T', 'L', 'P'),
+  /**
+   * N Connection Congestion Ctrl
+   */
+  NCON = toTag('N', 'C', 'O', 'N'),
+  /**
+   * CWND reduction on loss
+   */
+  NRTO = toTag('N', 'R', 'T', 'O'),
+  /**
+   * Undo any pending retransmits if they're likely spurious.
+   */
+  UNDO = toTag('U', 'N', 'D', 'O'),
+  /**
+   * Time based loss detection
+   */
+  TIME = toTag('T', 'I', 'M', 'E'),
+  /**
+   * Adaptive time loss detection
+   */
+  ATIM = toTag('A', 'T', 'I', 'M'),
+  /**
+   * Min CWND of 1 packet
+   */
+  MIN1 = toTag('M', 'I', 'N', '1'),
+  /**
+   * Min CWND of 4 packets, with a min rate of 1 BDP.
+   */
+  MIN4 = toTag('M', 'I', 'N', '4'),
+  /**
+   * Tail loss probe delay of 0.5RTT.
+   */
+  TLPR = toTag('T', 'L', 'P', 'R'),
+  /**
+   * Ack decimation style acking.
+   */
+  ACKD = toTag('A', 'C', 'K', 'D'),
+  /**
+   * Ack decimation tolerating out of order packets.
+   */
+  AKD2 = toTag('A', 'K', 'D', '2'),
+  /**
+   * Ack decimation style acking with 1/8 RTT acks.
+   */
+  AKD3 = toTag('A', 'K', 'D', '3'),
+  /**
+   * Ack decimation with 1/8 RTT tolerating out of order.
+   */
+  AKD4 = toTag('A', 'K', 'D', '4'),
+  /**
+   * Unlimited number of packets receieved before acking
+   */
+  AKDU = toTag('A', 'K', 'D', 'U'),
+  /**
+   * Slow Start Large Reduction.
+   */
+  SSLR = toTag('S', 'S', 'L', 'R'),
+  /**
+   * Pace at unity instead of PRR
+   */
+  NPRR = toTag('N', 'P', 'R', 'R'),
+  /**
+   * Close connection on 5 RTOs
+   */
+  '5RTO' = toTag('5', 'R', 'T', 'O'),
+  /**
+   * Close connection on 3 RTOs
+   */
+  '3RTO' = toTag('3', 'R', 'T', 'O'),
+  /**
+   * Client timestamp in seconds since UNIX epoch.
+   */
+  CTIM = toTag('C', 'T', 'I', 'M'),
+  /**
+   * Disable HPACK dynamic table.
+   */
+  DHDT = toTag('D', 'H', 'D', 'T'),
+  /**
+   * Conservative Handshake Retransmissions.
+   */
+  CONH = toTag('C', 'O', 'N', 'H'),
+  /**
+   * Don't invoke FACK on the first ack.
+   */
+  LFAK = toTag('L', 'F', 'A', 'K'),
+  /**
+   * Support MAX_HEADER_LIST_SIZE settings frame.
+   */
+  SMHL = toTag('S', 'M', 'H', 'L'),
+  /**
+   * Fix Cubic convex bug.
+   */
+  CCVX = toTag('C', 'C', 'V', 'X'),
+  /**
+   * Fix CubicBytes quantization.
+   */
+  CBQT = toTag('C', 'B', 'Q', 'T'),
+  /**
+   * Fix Cubic BetaLastMax bug.
+   */
+  BLMX = toTag('B', 'L', 'M', 'X'),
+  /**
+   * Allow Cubic per-ack-updates.
+   */
+  CPAU = toTag('C', 'P', 'A', 'U'),
+  /**
+   * No stop waiting frames.
+   */
+  NSTP = toTag('N', 'S', 'T', 'P'),
 
   // Optional support of truncated Connection IDs.  If sent by a peer, the value
   // is the minimum number of bytes allowed for the connection ID sent to the
   // peer.
-  TCID = toTag('T', 'C', 'I', 'D'), // Connection ID truncation.
+  /**
+   * Connection ID truncation.
+   */
+  TCID = toTag('T', 'C', 'I', 'D'),
 
   // Multipath option.
-  MPTH = toTag('M', 'P', 'T', 'H'), // Enable multipath.
+  /**
+   * Enable multipath.
+   */
+  MPTH = toTag('M', 'P', 'T', 'H'),
 
-  NCMR = toTag('N', 'C', 'M', 'R'), // Do not attempt connection migration.
+  /**
+   * Do not attempt connection migration.
+   */
+  NCMR = toTag('N', 'C', 'M', 'R'),
 
   // Enable bandwidth resumption experiment.
-  BWRE = toTag('B', 'W', 'R', 'E'),  // Bandwidth resumption.
-  BWMX = toTag('B', 'W', 'M', 'X'),  // Max bandwidth resumption.
-  BWRS = toTag('B', 'W', 'R', 'S'),  // Server bandwidth resumption.
-  BWS2 = toTag('B', 'W', 'S', '2'),  // Server bw resumption v2.
+  /**
+   * Bandwidth resumption.
+   */
+  BWRE = toTag('B', 'W', 'R', 'E'),
+  /**
+   * Max bandwidth resumption.
+   */
+  BWMX = toTag('B', 'W', 'M', 'X'),
+  /**
+   * Server bandwidth resumption.
+   */
+  BWRS = toTag('B', 'W', 'R', 'S'),
+  /**
+   * Server bw resumption v2.
+   */
+  BWS2 = toTag('B', 'W', 'S', '2'),
 
   // Enable path MTU discovery experiment.
-  MTUH = toTag('M', 'T', 'U', 'H'),  // High-target MTU discovery.
-  MTUL = toTag('M', 'T', 'U', 'L'),  // Low-target MTU discovery.
+  /**
+   * High-target MTU discovery.
+   */
+  MTUH = toTag('M', 'T', 'U', 'H'),
+  /**
+   * Low-target MTU discovery.
+   */
+  MTUL = toTag('M', 'T', 'U', 'L'),
 
   // Tags for async signing experiments
-  ASYN = toTag('A', 'S', 'Y', 'N'),  // Perform asynchronous signing
-  SYNC = toTag('S', 'Y', 'N', 'C'),  // Perform synchronous signing
-
-  FHL2 = toTag('F', 'H', 'L', '2'), // Force head of line blocking.
+  /**
+   * Perform asynchronous signing
+   */
+  ASYN = toTag('A', 'S', 'Y', 'N'),
+  /**
+   * Perform synchronous signing
+   */
+  SYNC = toTag('S', 'Y', 'N', 'C'),
+  /**
+   * Force head of line blocking.
+   */
+  FHL2 = toTag('F', 'H', 'L', '2'),
 
   // Proof types (i.e. certificate types)
   // NOTE: although it would be silly to do so, specifying both kX509 and kX59R
   // is allowed and is equivalent to specifying only kX509.
-  X509 = toTag('X', '5', '0', '9'), // X.509 certificate, all key types
-  X59R = toTag('X', '5', '9', 'R'), // X.509 certificate, RSA keys only
-  CHID = toTag('C', 'H', 'I', 'D'), // Channel ID.
+  /**
+   * X.509 certificate, all key types
+   */
+  X509 = toTag('X', '5', '0', '9'),
+  /**
+   * X.509 certificate, RSA keys only
+   */
+  X59R = toTag('X', '5', '9', 'R'),
+  /**
+   * Channel ID.
+   */
+  CHID = toTag('C', 'H', 'I', 'D'),
 
   // Client hello tags
-  VER  = toTag('V', 'E', 'R', '\u{0}'),  // Version
-  NONC = toTag('N', 'O', 'N', 'C'), // The client's nonce
-  NONP = toTag('N', 'O', 'N', 'P'), // The client's proof nonce
-  KEXS = toTag('K', 'E', 'X', 'S'), // Key exchange methods
-  AEAD = toTag('A', 'E', 'A', 'D'), // Authenticated encryption algorithms
-  COPT = toTag('C', 'O', 'P', 'T'), // Connection options
-  CLOP = toTag('C', 'L', 'O', 'P'), // Client connection options
-  ICSL = toTag('I', 'C', 'S', 'L'), // Idle network timeout
-  SCLS = toTag('S', 'C', 'L', 'S'), // Silently close on timeout
-  MSPC = toTag('M', 'S', 'P', 'C'), // Max streams per connection.
-  MIDS = toTag('M', 'I', 'D', 'S'), // Max incoming dynamic streams
-  IRTT = toTag('I', 'R', 'T', 'T'), // Estimated initial RTT in us.
-  SWND = toTag('S', 'W', 'N', 'D'), // Server's Initial congestion window.
-  SNI  = toTag('S', 'N', 'I', '\u{0}'),  // Server name indication
-  PUBS = toTag('P', 'U', 'B', 'S'), // Public key values
-  SCID = toTag('S', 'C', 'I', 'D'), // Server config id
-  ORBT = toTag('O', 'B', 'I', 'T'), // Server orbit.
-  PDMD = toTag('P', 'D', 'M', 'D'), // Proof demand.
-  PROF = toTag('P', 'R', 'O', 'F'), // Proof (signature).
-  CCS  = toTag('C', 'C', 'S', '\u{0}'),     // Common certificate set
-  CCRT = toTag('C', 'C', 'R', 'T'), // Cached certificate
-  EXPY = toTag('E', 'X', 'P', 'Y'), // Expiry
-  STTL = toTag('S', 'T', 'T', 'L'), // Server Config TTL
-  SFCW = toTag('S', 'F', 'C', 'W'), // Initial stream flow control receive window.
-  CFCW = toTag('C', 'F', 'C', 'W'), // Initial session/connection flow control receive window.
-  UAID = toTag('U', 'A', 'I', 'D'), // Client's User Agent ID.
-  XLCT = toTag('X', 'L', 'C', 'T'), // Expected leaf certificate.
-  TBKP = toTag('T', 'B', 'K', 'P'), // Token Binding key params.
+  /**
+   * Version
+   */
+  VER  = toTag('V', 'E', 'R', '\u{0}'),
+  /**
+   * The client's nonce
+   */
+  NONC = toTag('N', 'O', 'N', 'C'),
+  /**
+   * The client's proof nonce
+   */
+  NONP = toTag('N', 'O', 'N', 'P'),
+  /**
+   * Key exchange methods
+   */
+  KEXS = toTag('K', 'E', 'X', 'S'),
+  /**
+   * Authenticated encryption algorithms
+   */
+  AEAD = toTag('A', 'E', 'A', 'D'),
+  /**
+   * Connection options
+   */
+  COPT = toTag('C', 'O', 'P', 'T'),
+  /**
+   * Client connection options
+   */
+  CLOP = toTag('C', 'L', 'O', 'P'),
+  /**
+   * Idle network timeout
+   */
+  ICSL = toTag('I', 'C', 'S', 'L'),
+  /**
+   * Silently close on timeout
+   */
+  SCLS = toTag('S', 'C', 'L', 'S'),
+  /**
+   * Max streams per connection.
+   */
+  MSPC = toTag('M', 'S', 'P', 'C'),
+  /**
+   * Max incoming dynamic streams
+   */
+  MIDS = toTag('M', 'I', 'D', 'S'),
+  /**
+   * Estimated initial RTT in us.
+   */
+  IRTT = toTag('I', 'R', 'T', 'T'),
+  /**
+   * Server's Initial congestion window.
+   */
+  SWND = toTag('S', 'W', 'N', 'D'),
+  /**
+   * Server name indication
+   */
+  SNI  = toTag('S', 'N', 'I', '\u{0}'),
+  /**
+   * Public key values
+   */
+  PUBS = toTag('P', 'U', 'B', 'S'),
+  /**
+   * Server config id
+   */
+  SCID = toTag('S', 'C', 'I', 'D'),
+  /**
+   * Server orbit.
+   */
+  ORBT = toTag('O', 'B', 'I', 'T'),
+  /**
+   * Proof demand.
+   */
+  PDMD = toTag('P', 'D', 'M', 'D'),
+  /**
+   * Proof (signature).
+   */
+  PROF = toTag('P', 'R', 'O', 'F'),
+  /**
+   * Common certificate set
+   */
+  CCS  = toTag('C', 'C', 'S', '\u{0}'),
+  /**
+   * Cached certificate
+   */
+  CCRT = toTag('C', 'C', 'R', 'T'),
+  /**
+   * Expiry
+   */
+  EXPY = toTag('E', 'X', 'P', 'Y'),
+  /**
+   * Server Config TTL
+   */
+  STTL = toTag('S', 'T', 'T', 'L'),
+  /**
+   * Initial stream flow control receive window.
+   */
+  SFCW = toTag('S', 'F', 'C', 'W'),
+  /**
+   * Initial session/connection flow control receive window.
+   */
+  CFCW = toTag('C', 'F', 'C', 'W'),
+  /**
+   * Client's User Agent ID.
+   */
+  UAID = toTag('U', 'A', 'I', 'D'),
+  /**
+   * Expected leaf certificate.
+   */
+  XLCT = toTag('X', 'L', 'C', 'T'),
+  /**
+   * Token Binding key params.
+   */
+  TBKP = toTag('T', 'B', 'K', 'P'),
 
   // Token Binding tags
-  TB10 = toTag('T', 'B', '1', '0'), // TB draft 10 with P256.
+  /**
+   * TB draft 10 with P256.
+   */
+  TB10 = toTag('T', 'B', '1', '0'),
 
   // Rejection tags
-  RREJ = toTag('R', 'R', 'E', 'J'), // Reasons for server sending
+  /**
+   * Reasons for server sending
+   */
+  RREJ = toTag('R', 'R', 'E', 'J'),
   // Stateless Reject tags
-  RCID = toTag('R', 'C', 'I', 'D'), // Server-designated connection ID
+  /**
+   * Server-designated connection ID
+   */
+  RCID = toTag('R', 'C', 'I', 'D'),
   // Server hello tags
-  CADR = toTag('C', 'A', 'D', 'R'), // Client IP address and port
-  ASAD = toTag('A', 'S', 'A', 'D'), // Alternate Server IP address and port.
+  /**
+   * Client IP address and port
+   */
+  CADR = toTag('C', 'A', 'D', 'R'),
+  /**
+   * Alternate Server IP address and port.
+   */
+  ASAD = toTag('A', 'S', 'A', 'D'),
 
   // CETV tags
-  CIDK = toTag('C', 'I', 'D', 'K'), // ChannelID key
-  CIDS = toTag('C', 'I', 'D', 'S'), // ChannelID signature
+  /**
+   * ChannelID key
+   */
+  CIDK = toTag('C', 'I', 'D', 'K'),
+  /**
+   * ChannelID signature
+   */
+  CIDS = toTag('C', 'I', 'D', 'S'),
 
   // Public reset tags
-  RNON = toTag('R', 'N', 'O', 'N'), // Public reset nonce proof
-  RSEQ = toTag('R', 'S', 'E', 'Q'), // Rejected packet number
+  /**
+   * Public reset nonce proof
+   */
+  RNON = toTag('R', 'N', 'O', 'N'),
+  /**
+   * Rejected packet number
+   */
+  RSEQ = toTag('R', 'S', 'E', 'Q'),
 
   // Universal tags
-  PAD  = toTag('P', 'A', 'D', '\u{0}'),  // Padding
+  /**
+   * Padding
+   */
+  PAD  = toTag('P', 'A', 'D', '\u{0}'),
 
   // Server push tags
-  SPSH = toTag('S', 'P', 'S', 'H'),  // Support server push.
+  /**
+   * Support server push.
+   */
+  SPSH = toTag('S', 'P', 'S', 'H'),
 
   // clang-format on
 
@@ -774,10 +1138,22 @@ export enum Tag {
   // message because the server mightn't hold state for a rejected client hello
   // and therefore the client may have issues reassembling the rejection message
   // in the event that it sent two client hellos.
-  SNO = toTag('S', 'N', 'O', '\u{0}'),  // The server's nonce
-  STK = toTag('S', 'T', 'K', '\u{0}'),  // Source-address token
-  CRT = toTag('C', 'R', 'T', '\u{ff}'),  // Certificate chain
-  CSCT = toTag('C', 'S', 'C', 'T'),  // Signed cert timestamp (RFC6962) of leaf cert.
+  /**
+   * The server's nonce
+   */
+  SNO = toTag('S', 'N', 'O', '\u{0}'),
+  /**
+   * Source-address token
+   */
+  STK = toTag('S', 'T', 'K', '\u{0}'),
+  /**
+   * Certificate chain
+   */
+  CRT = toTag('C', 'R', 'T', '\u{ff}'),
+  /**
+   * Signed cert timestamp (RFC6962) of leaf cert.
+   */
+  CSCT = toTag('C', 'S', 'C', 'T'),
 }
 
 function toTag (a: string, b: string, c: string, d: string): number {

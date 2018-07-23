@@ -5,6 +5,7 @@
 
 import { debuglog } from 'util'
 import { EventEmitter } from 'events'
+import { Certificate, PrivateKey } from '@fidm/x509'
 
 import { MaxReceivePacketSize, MaxPacketSizeIPv4, MaxPacketSizeIPv6 } from './internal/constant'
 import { dnsLookup, BufferVisitor } from './internal/common'
@@ -59,11 +60,13 @@ export class ServerSession extends Session {
 export class ServerState {
   destroyed: boolean
   scfg: ServerConfig
+  privateKey: PrivateKey
   sourceToken: SourceToken
 
-  constructor () {
+  constructor (cert: Certificate, key: PrivateKey) {
     this.destroyed = false
-    this.scfg = new ServerConfig(null)
+    this.scfg = new ServerConfig(cert)
+    this.privateKey = key
     this.sourceToken = new SourceToken()
   }
 }
@@ -90,6 +93,11 @@ export declare interface Server {
   once (event: "session", listener: (session: Session) => void): this
 }
 
+export interface ServerOptions {
+  key: Buffer
+  cert: Buffer
+}
+
 //
 // *************** Server ***************
 //
@@ -102,7 +110,7 @@ export class Server extends EventEmitter {
   listening: boolean
   private [kConns]: Map<string, ServerSession>
   private [kIntervalCheck]: NodeJS.Timer
-  constructor () {
+  constructor (options: ServerOptions, listener?: (session: Session) => void) {
     super()
     this[kSocket] = null
     this.localFamily = ''
@@ -110,11 +118,19 @@ export class Server extends EventEmitter {
     this.localPort = 0
     this.listening = false
     this[kConns] = new Map()
-    this[kState] = new ServerState()
+
+    const cert = Certificate.fromPEM(options.cert)
+    const key = PrivateKey.fromPEM(options.key)
+    this[kState] = new ServerState(cert, key)
+
     this[kIntervalCheck] = setInterval(() => {
       const time = Date.now()
       this._intervalCheck(time)
     }, 1024)
+
+    if (listener != null) {
+      this.on('session', listener)
+    }
   }
 
   address (): AddressInfo {

@@ -44,8 +44,8 @@ export class ServerConfig extends QuicTags {
   orbt: string // hex, 8-byte
   expy: number // 64-bit expiry time
   pubs: Buffer[]
-  cert: Certificate | null
-  constructor (cert: Certificate | null) {
+  cert: Certificate
+  constructor (cert: Certificate) {
     super(Tag.SCFG)
     this.id = ''
     this.pubs = []

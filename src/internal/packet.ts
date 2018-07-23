@@ -108,7 +108,9 @@ export function parsePacket (bufv: BufferVisitor, packetSentBy: SessionType): Pa
   return RegularPacket.fromBuffer(bufv, flag, packetSentBy)
 }
 
-/** Packet representing a base Packet. */
+/**
+ * Packet representing a base Packet.
+ */
 export abstract class Packet {
   static fromBuffer (_bufv: BufferVisitor, _flag?: number, _packetSentBy?: SessionType): Packet {
     throw new Error(`class method "fromBuffer" is not implemented`)
@@ -154,7 +156,9 @@ export abstract class Packet {
   abstract writeTo (bufv: BufferVisitor): BufferVisitor
 }
 
-/** ResetPacket representing a reset Packet. */
+/**
+ * ResetPacket representing a reset Packet.
+ */
 export class ResetPacket extends Packet {
   // --- Public Reset Packet
   //      0        1        2        3        4         8
@@ -227,7 +231,9 @@ export class ResetPacket extends Packet {
   }
 }
 
-/** NegotiationPacket representing a negotiation Packet. */
+/**
+ * NegotiationPacket representing a negotiation Packet.
+ */
 export class NegotiationPacket extends Packet {
   // --- Version Negotiation Packet
   //      0        1        2        3        4        5        6        7       8
@@ -290,7 +296,9 @@ export class NegotiationPacket extends Packet {
   }
 }
 
-/** RegularPacket representing a regular Packet. */
+/**
+ * RegularPacket representing a regular Packet.
+ */
 export class RegularPacket extends Packet {
   // --- Frame Packet
   // +--------+---...---+--------+---...---+
