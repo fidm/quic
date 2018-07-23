@@ -180,6 +180,10 @@ export class Session extends EventEmitter implements SessionRef {
     return this[kState].idleTimeout
   }
 
+  get lastActivityTime(): number {
+    return this[kState].lastNetworkActivityTime
+  }
+
   set timeout (msecs: number) {
     this[kState].idleTimeout = msecs
   }
