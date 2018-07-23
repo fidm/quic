@@ -347,6 +347,7 @@ class StreamState {
   destroyed: boolean
   finished: boolean
   lastActivityTime?: number
+  startTime: number
   incomingSequencer: StreamSequencer
   outgoingChunksList: StreamDataList
   constructor () {
@@ -357,6 +358,7 @@ class StreamState {
     this.aborted = false
     this.destroyed = false
     this.finished = false
+    this.startTime = Date.now()
     this.incomingSequencer = new StreamSequencer()
     this.outgoingChunksList = new StreamDataList()
   }

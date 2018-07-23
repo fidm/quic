@@ -180,7 +180,7 @@ export class Session extends EventEmitter implements SessionRef {
     return this[kState].idleTimeout
   }
 
-  get lastActivityTime(): number {
+  get lastNetworkActivityTime(): number | undefined {
     return this[kState].lastNetworkActivityTime
   }
 
@@ -458,11 +458,12 @@ export class Session extends EventEmitter implements SessionRef {
     }
 
     // The PING frame should be used to keep a connection alive when a stream is open.
-    if (this[kState].keepAlivePingSent && this[kStreams].size > 0 && (time - this[kState].lastNetworkActivityTime >= PingFrameDelay)) {
+    const sessionNetworkTime = this[kState].lastNetworkActivityTime || this[kState].startTime
+    if (this[kState].keepAlivePingSent && this[kStreams].size > 0 && (time - sessionNetworkTime >= PingFrameDelay)) {
       this.ping().catch((err) => this.emit('error', err))
     }
     for (const stream of this[kStreams].values()) {
-      const lastActivityTime = stream[kState].lastActivityTime || Date.now()
+      const lastActivityTime = stream[kState].lastActivityTime || stream[kState].startTime
       if (stream.destroyed) {
         // clearup idle stream
         if (time - lastActivityTime> this[kState].idleTimeout) {
@@ -619,7 +620,8 @@ export class SessionState {
   bytesWritten: number
   idleTimeout: number
   liveStreamCount: number
-  lastNetworkActivityTime: number
+  lastNetworkActivityTime?: number
+  startTime: number
 
   destroyed: boolean
   shutdown: boolean
@@ -643,7 +645,7 @@ export class SessionState {
     this.bytesWritten = 0
     this.idleTimeout = DefaultIdleTimeout
     this.liveStreamCount = 0
-    this.lastNetworkActivityTime = Date.now()
+    this.startTime = Date.now()
 
     this.destroyed = false
     this.shutdown = false
