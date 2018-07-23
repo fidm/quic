@@ -176,6 +176,14 @@ export class Session extends EventEmitter implements SessionRef {
     return this[kState].maxPacketSize
   }
 
+  get timeout (): number {
+    return this[kState].idleTimeout
+  }
+
+  set timeout (msecs: number) {
+    this[kState].idleTimeout = msecs
+  }
+
   _stateDecreaseStreamCount () {
     this[kState].liveStreamCount -= 1
   }
@@ -506,10 +514,6 @@ export class Session extends EventEmitter implements SessionRef {
         }
       })
     })
-  }
-
-  setTimeout (_msecs: number) {
-    return
   }
 
   close (err?: any): Promise<void> {
