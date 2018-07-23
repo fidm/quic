@@ -77,7 +77,8 @@ export class Client extends Session {
     this[kIntervalCheck] = setInterval(() => {
       const time = Date.now()
       // client session idle timeout
-      if (time - this[kState].lastNetworkActivityTime > this[kState].idleTimeout) {
+      const sessionActivityTime = this[kState].lastNetworkActivityTime || this[kState].startTime
+      if (time - sessionActivityTime > this[kState].idleTimeout) {
         this.emit('timeout')
         this.close(QuicError.fromError(QuicError.QUIC_NETWORK_IDLE_TIMEOUT))
         return
