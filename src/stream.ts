@@ -105,7 +105,12 @@ export class Stream extends Duplex {
   }
 
   // close closes the stream with an error.
-  close (err: any): Promise<any> {
+  close (err: any, callback?: Function): Promise<any> {
+    if(typeof err == "function"){
+      callback = err
+      err = 0
+    }
+
     this[kState].localFIN = true
     const offset = new Offset(this[kFC].writtenOffset)
     const rstStreamFrame = new RstStreamFrame(this[kID], offset, StreamError.fromError(err))
@@ -117,6 +122,7 @@ export class Stream extends Duplex {
           this.destroy(e)
         }
         resolve()
+        if(callback) callback()
       })
     })
   }
