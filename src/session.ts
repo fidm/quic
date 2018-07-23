@@ -136,6 +136,8 @@ export class Session extends EventEmitter implements SessionRef {
     this[kFC] = this.isClient ? // TODO
       new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowClient) :
       new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowServer)
+
+    this.on("error", (err)=>debug("Unhandled error: %s", err))
   }
 
   get id (): string {
@@ -466,7 +468,7 @@ export class Session extends EventEmitter implements SessionRef {
       const lastActivityTime = stream[kState].lastActivityTime || stream[kState].startTime
       if (stream.destroyed) {
         // clearup idle stream
-        if (time - lastActivityTime> this[kState].idleTimeout) {
+        if (time - lastActivityTime > this[kState].idleTimeout) {
           this[kStreams].delete(stream.id)
         }
       } else if (time - lastActivityTime > MaxStreamWaitingTimeout) {
