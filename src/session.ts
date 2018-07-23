@@ -462,12 +462,13 @@ export class Session extends EventEmitter implements SessionRef {
       this.ping().catch((err) => this.emit('error', err))
     }
     for (const stream of this[kStreams].values()) {
+      const lastActivityTime = stream[kState].lastActivityTime || Date.now()
       if (stream.destroyed) {
         // clearup idle stream
-        if (time - stream[kState].lastActivityTime > this[kState].idleTimeout) {
+        if (time - lastActivityTime> this[kState].idleTimeout) {
           this[kStreams].delete(stream.id)
         }
-      } else if (time - stream[kState].lastActivityTime > MaxStreamWaitingTimeout) {
+      } else if (time - lastActivityTime > MaxStreamWaitingTimeout) {
         stream.emit('timeout')
       }
     }

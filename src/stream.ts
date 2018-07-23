@@ -100,6 +100,10 @@ export class Stream extends Duplex {
     return this[kFC].writtenOffset
   }
 
+  get closing(): boolean {
+    return this[kState].localFIN
+  }
+
   // close closes the stream with an error.
   close (err: any): Promise<any> {
     this[kState].localFIN = true
@@ -342,7 +346,7 @@ class StreamState {
   aborted: boolean
   destroyed: boolean
   finished: boolean
-  lastActivityTime: number
+  lastActivityTime?: number
   incomingSequencer: StreamSequencer
   outgoingChunksList: StreamDataList
   constructor () {
@@ -353,7 +357,6 @@ class StreamState {
     this.aborted = false
     this.destroyed = false
     this.finished = false
-    this.lastActivityTime = Date.now()
     this.incomingSequencer = new StreamSequencer()
     this.outgoingChunksList = new StreamDataList()
   }
