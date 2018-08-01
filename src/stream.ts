@@ -169,7 +169,12 @@ export class Stream extends Duplex {
 
   _final (callback: (...args: any[]) => void): void {
     this[kState].outgoingChunksList.push(null, callback)
-    this._tryFlushCallbacks()
+    try {
+      this._tryFlushCallbacks()
+    }catch(ex){
+      debug("Exception occurred while finalizing: %s", ex)
+      // Ignore exceptions here
+    }
   }
 
   _read (size: number = 0) {
