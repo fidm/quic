@@ -62,7 +62,7 @@ PHzIpYf+KSXjGzbjWIXTfxK8ehouwH4LlSNdOoFqvJSl2Bf2H4mH
       Long.fromString('14021741750704909750', true, 10).toString(16))
   })
 
-  it('SourceToken', function () {
+  it.skip('SourceToken', function () {
     const stk = new SourceToken()
     const buf = stk.encode('127.0.0.1')
     const tk = stk.decode(buf)
