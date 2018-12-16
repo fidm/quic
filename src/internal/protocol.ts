@@ -34,7 +34,14 @@ export function getVersion (): string {
  * Returns supported versions array.
  */
 export function getVersions (): string[] {
-  return QUIC_VERSIONS.slice()
+  return QUIC_VERSIONS
+}
+
+/**
+ * Returns true if the server supports this version.
+ */
+export function isSupportedVersion (version: string): boolean {
+  return QUIC_VERSIONS.includes(version)
 }
 
 /**
@@ -47,13 +54,6 @@ export function chooseVersion (theirs: string[]): string {
     }
   }
   return ''
-}
-
-/**
- * Returns true if the server supports this version.
- */
-export function isSupportedVersion (version: string): boolean {
-  return QUIC_VERSIONS.includes(version)
 }
 
 /** Protocol representing a base protocol. */

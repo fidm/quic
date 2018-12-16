@@ -13,6 +13,12 @@ import { BufferVisitor } from './internal/common'
 import { MaxReceivePacketSize } from './internal/constant'
 
 export { AddressInfo } from 'net'
+
+export enum SocketFamily {
+    UDP6 = 6,
+    UDP4 = 4,
+}
+
 export interface Socket<T> extends UDPSocket {
   [kState]: SocketState<T>
   sendPacket (packet: Packet, remotePort: number, remoteAddr: string, callback: (err: any) => void): void
@@ -29,14 +35,15 @@ export class SocketState<T> {
   }
 }
 
-export function createSocket<T> (family: number): Socket<T> {
-  const socket = createUDP(family === 6 ? 'udp6' : 'udp4')
+export function createSocket<T> (family: SocketFamily): Socket<T> {
+  const socket = createUDP(family === SocketFamily.UDP6 ? 'udp6' : 'udp4')
   const state = new SocketState<T>()
 
   socket.once('close', () => {
     state.destroyed = true
     socket.removeAllListeners()
   })
+
   Object.assign(socket, {
     [kState]: state,
     sendPacket,
@@ -61,12 +68,15 @@ function sendPacket<T> (
   }
 
   let bufv = bufferPool.shift()
+
   if (bufv == null) {
     bufv = new BufferVisitor(Buffer.alloc(MaxReceivePacketSize))
   } else {
     bufv.reset()
   }
+
   packet.writeTo(bufv)
+
   this.send(bufv.buf, 0, bufv.end, remotePort, remoteAddr, (err: any) => {
     packet.sentTime = Date.now()
     bufferPool.push(bufv as BufferVisitor)
