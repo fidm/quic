@@ -136,6 +136,8 @@ export class Session extends EventEmitter implements SessionRef {
     this[kFC] = this.isClient ? // TODO
       new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowClient) :
       new ConnectionFlowController(ReceiveConnectionWindow, DefaultMaxReceiveConnectionWindowServer)
+
+    this.on("error", (err)=>debug("Unhandled error: %s", err))
   }
 
   get id (): string {
@@ -174,6 +176,18 @@ export class Session extends EventEmitter implements SessionRef {
 
   get _stateMaxPacketSize (): number {
     return this[kState].maxPacketSize
+  }
+
+  get timeout (): number {
+    return this[kState].idleTimeout
+  }
+
+  get lastNetworkActivityTime(): number | undefined {
+    return this[kState].lastNetworkActivityTime
+  }
+
+  set timeout (msecs: number) {
+    this[kState].idleTimeout = msecs
   }
 
   _stateDecreaseStreamCount () {
@@ -446,16 +460,18 @@ export class Session extends EventEmitter implements SessionRef {
     }
 
     // The PING frame should be used to keep a connection alive when a stream is open.
-    if (this[kState].keepAlivePingSent && this[kStreams].size > 0 && (time - this[kState].lastNetworkActivityTime >= PingFrameDelay)) {
+    const sessionNetworkTime = this[kState].lastNetworkActivityTime || this[kState].startTime
+    if (this[kState].keepAlivePingSent && this[kStreams].size > 0 && (time - sessionNetworkTime >= PingFrameDelay)) {
       this.ping().catch((err) => this.emit('error', err))
     }
     for (const stream of this[kStreams].values()) {
+      const lastActivityTime = stream[kState].lastActivityTime || stream[kState].startTime
       if (stream.destroyed) {
         // clearup idle stream
-        if (time - stream[kState].lastActivityTime > this[kState].idleTimeout) {
+        if (time - lastActivityTime > this[kState].idleTimeout) {
           this[kStreams].delete(stream.id)
         }
-      } else if (time - stream[kState].lastActivityTime > MaxStreamWaitingTimeout) {
+      } else if (time - lastActivityTime > MaxStreamWaitingTimeout) {
         stream.emit('timeout')
       }
     }
@@ -506,10 +522,6 @@ export class Session extends EventEmitter implements SessionRef {
         }
       })
     })
-  }
-
-  setTimeout (_msecs: number) {
-    return
   }
 
   close (err?: any): Promise<void> {
@@ -610,7 +622,8 @@ export class SessionState {
   bytesWritten: number
   idleTimeout: number
   liveStreamCount: number
-  lastNetworkActivityTime: number
+  lastNetworkActivityTime?: number
+  startTime: number
 
   destroyed: boolean
   shutdown: boolean
@@ -634,7 +647,7 @@ export class SessionState {
     this.bytesWritten = 0
     this.idleTimeout = DefaultIdleTimeout
     this.liveStreamCount = 0
-    this.lastNetworkActivityTime = Date.now()
+    this.startTime = Date.now()
 
     this.destroyed = false
     this.shutdown = false

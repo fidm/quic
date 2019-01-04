@@ -100,8 +100,17 @@ export class Stream extends Duplex {
     return this[kFC].writtenOffset
   }
 
+  get closing(): boolean {
+    return this[kState].localFIN
+  }
+
   // close closes the stream with an error.
-  close (err: any): Promise<any> {
+  close (err: any, callback?: Function): Promise<any> {
+    if(typeof err == "function"){
+      callback = err
+      err = 0
+    }
+
     this[kState].localFIN = true
     const offset = new Offset(this[kFC].writtenOffset)
     const rstStreamFrame = new RstStreamFrame(this[kID], offset, StreamError.fromError(err))
@@ -113,6 +122,7 @@ export class Stream extends Duplex {
           this.destroy(e)
         }
         resolve()
+        if(callback) callback()
       })
     })
   }
@@ -159,7 +169,12 @@ export class Stream extends Duplex {
 
   _final (callback: (...args: any[]) => void): void {
     this[kState].outgoingChunksList.push(null, callback)
-    this._tryFlushCallbacks()
+    try {
+      this._tryFlushCallbacks()
+    }catch(ex){
+      debug("Exception occurred while finalizing: %s", ex)
+      // Ignore exceptions here
+    }
   }
 
   _read (size: number = 0) {
@@ -342,7 +357,8 @@ class StreamState {
   aborted: boolean
   destroyed: boolean
   finished: boolean
-  lastActivityTime: number
+  lastActivityTime?: number
+  startTime: number
   incomingSequencer: StreamSequencer
   outgoingChunksList: StreamDataList
   constructor () {
@@ -353,7 +369,7 @@ class StreamState {
     this.aborted = false
     this.destroyed = false
     this.finished = false
-    this.lastActivityTime = Date.now()
+    this.startTime = Date.now()
     this.incomingSequencer = new StreamSequencer()
     this.outgoingChunksList = new StreamDataList()
   }

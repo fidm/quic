@@ -159,7 +159,8 @@ export class Server extends EventEmitter {
   _intervalCheck (time: number) {
     for (const session of this[kConns].values()) {
       // server session idle timeout
-      if (time - session[kState].lastNetworkActivityTime > session[kState].idleTimeout) {
+      const sessionActivityTime = session[kState].lastNetworkActivityTime || session[kState].startTime
+      if (time - sessionActivityTime > session[kState].idleTimeout) {
         // When a server decides to terminate an idle connection,
         // it should not notify the client to avoid waking up the radio on mobile devices.
         if (!session.destroyed) {
